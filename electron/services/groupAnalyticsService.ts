@@ -21,6 +21,7 @@ export interface GroupMember {
   alias?: string
   remark?: string
   groupNickname?: string
+  isOwner?: boolean
 }
 
 export interface GroupMessageRank {
@@ -87,6 +88,128 @@ class GroupAnalyticsService {
     const cleaned = suffixMatch ? suffixMatch[1] : trimmed
     
     return cleaned
+  }
+
+  private resolveMemberUsername(
+    candidate: unknown,
+    memberLookup: Map<string, string>
+  ): string | null {
+    if (typeof candidate !== 'string') return null
+    const raw = candidate.trim()
+    if (!raw) return null
+    if (memberLookup.has(raw)) return memberLookup.get(raw) || null
+    const cleaned = this.cleanAccountDirName(raw)
+    if (memberLookup.has(cleaned)) return memberLookup.get(cleaned) || null
+
+    const parts = raw.split(/[,\s;|]+/).filter(Boolean)
+    for (const part of parts) {
+      if (memberLookup.has(part)) return memberLookup.get(part) || null
+      const normalizedPart = this.cleanAccountDirName(part)
+      if (memberLookup.has(normalizedPart)) return memberLookup.get(normalizedPart) || null
+    }
+
+    if ((raw.startsWith('{') || raw.startsWith('[')) && raw.length < 4096) {
+      try {
+        const parsed = JSON.parse(raw)
+        return this.extractOwnerUsername(parsed, memberLookup, 0)
+      } catch {
+        return null
+      }
+    }
+
+    return null
+  }
+
+  private extractOwnerUsername(
+    value: unknown,
+    memberLookup: Map<string, string>,
+    depth: number
+  ): string | null {
+    if (depth > 4 || value == null) return null
+    if (Buffer.isBuffer(value) || value instanceof Uint8Array) return null
+
+    if (typeof value === 'string') {
+      return this.resolveMemberUsername(value, memberLookup)
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const owner = this.extractOwnerUsername(item, memberLookup, depth + 1)
+        if (owner) return owner
+      }
+      return null
+    }
+
+    if (typeof value !== 'object') return null
+    const row = value as Record<string, unknown>
+
+    for (const [key, entry] of Object.entries(row)) {
+      const keyLower = key.toLowerCase()
+      if (!keyLower.includes('owner') && !keyLower.includes('host') && !keyLower.includes('creator')) {
+        continue
+      }
+
+      if (typeof entry === 'boolean') {
+        if (entry && typeof row.username === 'string') {
+          const owner = this.resolveMemberUsername(row.username, memberLookup)
+          if (owner) return owner
+        }
+        continue
+      }
+
+      const owner = this.extractOwnerUsername(entry, memberLookup, depth + 1)
+      if (owner) return owner
+    }
+
+    return null
+  }
+
+  private async detectGroupOwnerUsername(
+    chatroomId: string,
+    members: Array<{ username: string; [key: string]: unknown }>
+  ): Promise<string | undefined> {
+    const memberLookup = new Map<string, string>()
+    for (const member of members) {
+      const username = String(member.username || '').trim()
+      if (!username) continue
+      const cleaned = this.cleanAccountDirName(username)
+      memberLookup.set(username, username)
+      memberLookup.set(cleaned, username)
+    }
+    if (memberLookup.size === 0) return undefined
+
+    const tryResolve = (candidate: unknown): string | undefined => {
+      const owner = this.extractOwnerUsername(candidate, memberLookup, 0)
+      return owner || undefined
+    }
+
+    for (const member of members) {
+      const owner = tryResolve(member)
+      if (owner) return owner
+    }
+
+    try {
+      const groupContact = await wcdbService.getContact(chatroomId)
+      if (groupContact.success && groupContact.contact) {
+        const owner = tryResolve(groupContact.contact)
+        if (owner) return owner
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const escapedChatroomId = chatroomId.replace(/'/g, "''")
+      const roomResult = await wcdbService.execQuery('contact', null, `SELECT * FROM chat_room WHERE username='${escapedChatroomId}' LIMIT 1`)
+      if (roomResult.success && roomResult.rows && roomResult.rows.length > 0) {
+        const owner = tryResolve(roomResult.rows[0])
+        if (owner) return owner
+      }
+    } catch {
+      // ignore
+    }
+
+    return undefined
   }
 
   private async ensureConnected(): Promise<{ success: boolean; error?: string }> {
@@ -497,6 +620,7 @@ class GroupAnalyticsService {
         username: string
         avatarUrl?: string
         originalName?: string
+        [key: string]: unknown
       }>
       const usernames = members.map((m) => m.username).filter(Boolean)
 
@@ -543,6 +667,7 @@ class GroupAnalyticsService {
       const groupNicknames = await this.getGroupNicknamesForRoom(chatroomId, nicknameCandidates)
 
       const myWxid = this.cleanAccountDirName(this.configService.get('myWxid') || '')
+      const ownerUsername = await this.detectGroupOwnerUsername(chatroomId, members)
       const data: GroupMember[] = members.map((m) => {
         const wxid = m.username || ''
         const displayName = displayNames.success && displayNames.map ? (displayNames.map[wxid] || wxid) : wxid
@@ -572,7 +697,8 @@ class GroupAnalyticsService {
           alias,
           remark,
           groupNickname,
-          avatarUrl: m.avatarUrl
+          avatarUrl: m.avatarUrl,
+          isOwner: Boolean(ownerUsername && ownerUsername === wxid)
         }
       })
 

@@ -323,6 +323,7 @@ export interface ElectronAPI {
         alias?: string
         remark?: string
         groupNickname?: string
+        isOwner?: boolean
       }>
       error?: string
     }>
@@ -638,6 +639,7 @@ export interface ExportProgress {
   current: number
   total: number
   currentSession: string
+  currentSessionId?: string
   phase: 'preparing' | 'exporting' | 'exporting-media' | 'exporting-voice' | 'writing' | 'complete'
   phaseProgress?: number
   phaseTotal?: number

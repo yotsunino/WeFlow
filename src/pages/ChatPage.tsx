@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, ChevronLeft, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link, Mic, CheckCircle, Copy, Check, CheckSquare, Download, BarChart3, Edit2, Trash2, BellOff, Users, FolderClosed } from 'lucide-react'
+import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, ChevronLeft, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link, Mic, CheckCircle, Copy, Check, CheckSquare, Download, BarChart3, Edit2, Trash2, BellOff, Users, FolderClosed, UserCheck, Crown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useChatStore } from '../stores/chatStore'
@@ -213,6 +213,19 @@ interface SessionDetail {
   messageTables: { dbName: string; tableName: string; count: number }[]
 }
 
+interface GroupPanelMember {
+  username: string
+  displayName: string
+  avatarUrl?: string
+  nickname?: string
+  alias?: string
+  remark?: string
+  groupNickname?: string
+  isOwner?: boolean
+  isFriend: boolean
+  messageCount: number
+}
+
 interface SessionListCachePayload {
   updatedAt: number
   sessions: ChatSession[]
@@ -378,9 +391,14 @@ function ChatPage(_props: ChatPageProps) {
   const [sidebarWidth, setSidebarWidth] = useState(260)
   const [isResizing, setIsResizing] = useState(false)
   const [showDetailPanel, setShowDetailPanel] = useState(false)
+  const [showGroupMembersPanel, setShowGroupMembersPanel] = useState(false)
   const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const [isLoadingDetailExtra, setIsLoadingDetailExtra] = useState(false)
+  const [groupPanelMembers, setGroupPanelMembers] = useState<GroupPanelMember[]>([])
+  const [isLoadingGroupMembers, setIsLoadingGroupMembers] = useState(false)
+  const [groupMembersError, setGroupMembersError] = useState<string | null>(null)
+  const [groupMemberSearchKeyword, setGroupMemberSearchKeyword] = useState('')
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [highlightedMessageKeys, setHighlightedMessageKeys] = useState<string[]>([])
   const [isRefreshingSessions, setIsRefreshingSessions] = useState(false)
@@ -459,12 +477,17 @@ function ChatPage(_props: ChatPageProps) {
   const preloadImageKeysRef = useRef<Set<string>>(new Set())
   const lastPreloadSessionRef = useRef<string | null>(null)
   const detailRequestSeqRef = useRef(0)
+  const groupMembersRequestSeqRef = useRef(0)
   const chatCacheScopeRef = useRef('default')
   const previewCacheRef = useRef<Record<string, SessionPreviewCacheEntry>>({})
   const previewPersistTimerRef = useRef<number | null>(null)
   const sessionListPersistTimerRef = useRef<number | null>(null)
   const pendingExportRequestIdRef = useRef<string | null>(null)
   const exportPrepareLongWaitTimerRef = useRef<number | null>(null)
+
+  const isGroupChatSession = useCallback((username: string) => {
+    return username.includes('@chatroom')
+  }, [])
 
   const clearExportPrepareState = useCallback(() => {
     pendingExportRequestIdRef.current = null
@@ -824,17 +847,131 @@ function ChatPage(_props: ChatPageProps) {
     }
   }, [])
 
+  const loadGroupMembersPanel = useCallback(async (chatroomId: string) => {
+    if (!chatroomId || !isGroupChatSession(chatroomId)) return
+
+    const requestSeq = ++groupMembersRequestSeqRef.current
+    setIsLoadingGroupMembers(true)
+    setGroupMembersError(null)
+
+    try {
+      const [membersResult, rankingResult, contactsResult] = await Promise.all([
+        window.electronAPI.groupAnalytics.getGroupMembers(chatroomId),
+        window.electronAPI.groupAnalytics.getGroupMessageRanking(chatroomId, 20000),
+        window.electronAPI.chat.getContacts()
+      ])
+      if (requestSeq !== groupMembersRequestSeqRef.current) return
+
+      if (!membersResult.success || !Array.isArray(membersResult.data)) {
+        setGroupPanelMembers([])
+        setGroupMembersError(membersResult.error || '加载群成员失败')
+        return
+      }
+
+      const messageCountMap = new Map<string, number>()
+      if (rankingResult.success && Array.isArray(rankingResult.data)) {
+        for (const rank of rankingResult.data) {
+          const username = String(rank.member?.username || '').trim()
+          if (!username) continue
+          const count = Number.isFinite(rank.messageCount) ? Math.max(0, Math.floor(rank.messageCount)) : 0
+          messageCountMap.set(username, count)
+        }
+      }
+
+      const friendSet = new Set<string>()
+      if (contactsResult.success && Array.isArray(contactsResult.contacts)) {
+        for (const contact of contactsResult.contacts) {
+          if (contact.type !== 'friend') continue
+          const username = String(contact.username || '').trim()
+          if (!username) continue
+          friendSet.add(username)
+        }
+      }
+
+      const members: GroupPanelMember[] = membersResult.data
+        .map((member) => {
+          const username = String(member.username || '').trim()
+          if (!username) return null
+          const preferredName = String(
+            member.groupNickname ||
+            member.remark ||
+            member.displayName ||
+            member.nickname ||
+            username
+          )
+
+          return {
+            username,
+            displayName: preferredName,
+            avatarUrl: member.avatarUrl,
+            nickname: member.nickname,
+            alias: member.alias,
+            remark: member.remark,
+            groupNickname: member.groupNickname,
+            isOwner: Boolean(member.isOwner),
+            isFriend: friendSet.has(username),
+            messageCount: messageCountMap.get(username) || 0
+          }
+        })
+        .filter((member): member is GroupPanelMember => Boolean(member))
+        .sort((a, b) => {
+          const ownerDiff = Number(Boolean(b.isOwner)) - Number(Boolean(a.isOwner))
+          if (ownerDiff !== 0) return ownerDiff
+
+          const friendDiff = Number(b.isFriend) - Number(a.isFriend)
+          if (friendDiff !== 0) return friendDiff
+
+          if (a.messageCount !== b.messageCount) return b.messageCount - a.messageCount
+          return a.displayName.localeCompare(b.displayName, 'zh-Hans-CN')
+        })
+
+      setGroupPanelMembers(members)
+      if (!rankingResult.success) {
+        setGroupMembersError(rankingResult.error || '群成员发言统计加载失败')
+      }
+    } catch (e) {
+      if (requestSeq !== groupMembersRequestSeqRef.current) return
+      setGroupPanelMembers([])
+      setGroupMembersError(String(e))
+    } finally {
+      if (requestSeq === groupMembersRequestSeqRef.current) {
+        setIsLoadingGroupMembers(false)
+      }
+    }
+  }, [])
+
+  const toggleGroupMembersPanel = useCallback(() => {
+    if (!currentSessionId || !isGroupChatSession(currentSessionId)) return
+    if (showGroupMembersPanel) {
+      setShowGroupMembersPanel(false)
+      return
+    }
+    setShowDetailPanel(false)
+    setShowGroupMembersPanel(true)
+  }, [currentSessionId, showGroupMembersPanel, isGroupChatSession])
+
   // 切换详情面板
   const toggleDetailPanel = useCallback(() => {
     if (showDetailPanel) {
       setShowDetailPanel(false)
       return
     }
+    setShowGroupMembersPanel(false)
     setShowDetailPanel(true)
     if (currentSessionId) {
       void loadSessionDetail(currentSessionId)
     }
   }, [showDetailPanel, currentSessionId, loadSessionDetail])
+
+  useEffect(() => {
+    if (!showGroupMembersPanel) return
+    if (!currentSessionId || !isGroupChatSession(currentSessionId)) {
+      setShowGroupMembersPanel(false)
+      return
+    }
+    setGroupMemberSearchKeyword('')
+    void loadGroupMembersPanel(currentSessionId)
+  }, [showGroupMembersPanel, currentSessionId, loadGroupMembersPanel, isGroupChatSession])
 
   // 复制字段值到剪贴板
   const handleCopyField = useCallback(async (text: string, field: string) => {
@@ -887,6 +1024,13 @@ function ChatPage(_props: ChatPageProps) {
     pendingSessionLoadRef.current = null
     setIsSessionSwitching(false)
     setSessionDetail(null)
+    setShowDetailPanel(false)
+    setShowGroupMembersPanel(false)
+    setGroupPanelMembers([])
+    setGroupMembersError(null)
+    setGroupMemberSearchKeyword('')
+    groupMembersRequestSeqRef.current += 1
+    setIsLoadingGroupMembers(false)
     setCurrentSession(null)
     setSessions([])
     setFilteredSessions([])
@@ -914,6 +1058,8 @@ function ChatPage(_props: ChatPageProps) {
     setMessages,
     setSearchKeyword,
     setSessionDetail,
+    setShowDetailPanel,
+    setShowGroupMembersPanel,
     setSessions
   ])
 
@@ -1545,6 +1691,11 @@ function ChatPage(_props: ChatPageProps) {
     void loadMessages(session.username, 0, 0, 0)
     // 切换会话后回到正常聊天窗口：收起详情侧栏，详情需手动再次展开
     setShowDetailPanel(false)
+    setShowGroupMembersPanel(false)
+    setGroupMemberSearchKeyword('')
+    setGroupMembersError(null)
+    groupMembersRequestSeqRef.current += 1
+    setIsLoadingGroupMembers(false)
     setSessionDetail(null)
   }
 
@@ -1932,6 +2083,21 @@ function ChatPage(_props: ChatPageProps) {
       displayName: fallbackDisplayName || currentSessionId,
     } as ChatSession
   })()
+  const filteredGroupPanelMembers = useMemo(() => {
+    const keyword = groupMemberSearchKeyword.trim().toLowerCase()
+    if (!keyword) return groupPanelMembers
+    return groupPanelMembers.filter((member) => {
+      const fields = [
+        member.username,
+        member.displayName,
+        member.groupNickname,
+        member.remark,
+        member.nickname,
+        member.alias
+      ]
+      return fields.some(field => String(field || '').toLowerCase().includes(keyword))
+    })
+  }, [groupMemberSearchKeyword, groupPanelMembers])
   const isCurrentSessionExporting = Boolean(currentSessionId && inProgressExportSessionIds.has(currentSessionId))
   const isExportActionBusy = isCurrentSessionExporting || isPreparingExportDialog
 
@@ -1948,9 +2114,6 @@ function ChatPage(_props: ChatPageProps) {
       if (cached?.displayName) setFallbackDisplayName(cached.displayName)
     })
   }, [currentSessionId, sessions])
-
-  // 判断是否为群聊
-  const isGroupChat = (username: string) => username.includes('@chatroom')
 
   // 渲染日期分隔
   const shouldShowDateDivider = (msg: Message, prevMsg?: Message): boolean => {
@@ -2069,13 +2232,13 @@ function ChatPage(_props: ChatPageProps) {
   }, [currentSession, currentSessionId, inProgressExportSessionIds, isPreparingExportDialog])
 
   const handleGroupAnalytics = useCallback(() => {
-    if (!currentSessionId || !isGroupChat(currentSessionId)) return
+    if (!currentSessionId || !isGroupChatSession(currentSessionId)) return
     navigate('/group-analytics', {
       state: {
         preselectGroupIds: [currentSessionId]
       }
     })
-  }, [currentSessionId, navigate])
+  }, [currentSessionId, navigate, isGroupChatSession])
 
   // 确认批量转写
   const confirmBatchTranscribe = useCallback(async () => {
@@ -2723,22 +2886,31 @@ function ChatPage(_props: ChatPageProps) {
                 src={currentSession.avatarUrl}
                 name={currentSession.displayName || currentSession.username}
                 size={40}
-                className={isGroupChat(currentSession.username) ? 'group session-avatar' : 'session-avatar'}
+                className={isGroupChatSession(currentSession.username) ? 'group session-avatar' : 'session-avatar'}
               />
               <div className="header-info">
                 <h3>{currentSession.displayName || currentSession.username}</h3>
-                {isGroupChat(currentSession.username) && (
+                {isGroupChatSession(currentSession.username) && (
                   <div className="header-subtitle">群聊</div>
                 )}
               </div>
               <div className="header-actions">
-                {isGroupChat(currentSession.username) && (
+                {isGroupChatSession(currentSession.username) && (
                   <button
                     className="icon-btn group-analytics-btn"
                     onClick={handleGroupAnalytics}
                     title="群聊分析"
                   >
                     <BarChart3 size={18} />
+                  </button>
+                )}
+                {isGroupChatSession(currentSession.username) && (
+                  <button
+                    className={`icon-btn group-members-btn ${showGroupMembersPanel ? 'active' : ''}`}
+                    onClick={toggleGroupMembersPanel}
+                    title="群成员"
+                  >
+                    <Users size={18} />
                   </button>
                 )}
                 <button
@@ -2920,7 +3092,7 @@ function ChatPage(_props: ChatPageProps) {
                         session={currentSession}
                         showTime={!showDateDivider && showTime}
                         myAvatarUrl={myAvatarUrl}
-                        isGroupChat={isGroupChat(currentSession.username)}
+                        isGroupChat={isGroupChatSession(currentSession.username)}
                         onRequireModelDownload={handleRequireModelDownload}
                         onContextMenu={handleContextMenu}
                         isSelectionMode={isSelectionMode}
@@ -2950,6 +3122,80 @@ function ChatPage(_props: ChatPageProps) {
                   <span>回到底部</span>
                 </div>
               </div>
+
+              {/* 群成员面板 */}
+              {showGroupMembersPanel && isGroupChatSession(currentSession.username) && (
+                <div className="detail-panel group-members-panel">
+                  <div className="detail-header">
+                    <h4>群成员</h4>
+                    <button className="close-btn" onClick={() => setShowGroupMembersPanel(false)}>
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="group-members-toolbar">
+                    <span className="group-members-count">共 {groupPanelMembers.length} 人</span>
+                    <div className="group-members-search">
+                      <Search size={14} />
+                      <input
+                        type="text"
+                        value={groupMemberSearchKeyword}
+                        onChange={(event) => setGroupMemberSearchKeyword(event.target.value)}
+                        placeholder="搜索成员"
+                      />
+                    </div>
+                  </div>
+
+                  {isLoadingGroupMembers ? (
+                    <div className="detail-loading">
+                      <Loader2 size={20} className="spin" />
+                      <span>加载群成员中...</span>
+                    </div>
+                  ) : groupMembersError && groupPanelMembers.length === 0 ? (
+                    <div className="detail-empty">{groupMembersError}</div>
+                  ) : filteredGroupPanelMembers.length === 0 ? (
+                    <div className="detail-empty">{groupMemberSearchKeyword.trim() ? '暂无匹配成员' : '暂无群成员数据'}</div>
+                  ) : (
+                    <div className="group-members-list">
+                      {filteredGroupPanelMembers.map((member) => (
+                        <div key={member.username} className="group-member-item">
+                          <div className="group-member-main">
+                            <Avatar
+                              src={member.avatarUrl}
+                              name={member.displayName || member.username}
+                              size={34}
+                              className="group-member-avatar"
+                            />
+                            <div className="group-member-meta">
+                              <div className="group-member-name-row">
+                                <span className="group-member-name" title={member.displayName || member.username}>
+                                  {member.displayName || member.username}
+                                </span>
+                                <div className="group-member-badges">
+                                  {member.isOwner && (
+                                    <span className="member-flag owner" title="群主">
+                                      <Crown size={12} />
+                                    </span>
+                                  )}
+                                  {member.isFriend && (
+                                    <span className="member-flag friend" title="好友">
+                                      <UserCheck size={12} />
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="group-member-id" title={member.alias || member.username}>
+                                {member.alias || member.username}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="group-member-count">{member.messageCount.toLocaleString()} 条</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 会话详情面板 */}
               {showDetailPanel && (
