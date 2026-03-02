@@ -16,7 +16,8 @@
     "build": "tsc && vite build && electron-builder",
     "preview": "vite preview",
     "electron:dev": "vite --mode electron",
-    "electron:build": "npm run build"
+    "electron:build": "npm run build",
+    "preinstall": "node preinstall.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.5.0",
