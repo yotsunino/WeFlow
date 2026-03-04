@@ -123,6 +123,7 @@ interface ExportTask {
   id: string
   title: string
   status: TaskStatus
+  settledSessionIds?: string[]
   createdAt: number
   startedAt?: number
   finishedAt?: number
@@ -2277,6 +2278,7 @@ function ExportPage() {
     updateTask(next.id, task => ({
       ...task,
       status: 'running',
+      settledSessionIds: [],
       startedAt: Date.now(),
       finishedAt: undefined,
       error: undefined,
@@ -2286,6 +2288,7 @@ function ExportPage() {
     }))
 
     progressUnsubscribeRef.current?.()
+    const settledSessionIdsFromProgress = new Set<string>()
     if (next.payload.scope === 'sns') {
       progressUnsubscribeRef.current = window.electronAPI.sns.onExportProgress((payload) => {
         updateTask(next.id, task => {
@@ -2306,10 +2309,34 @@ function ExportPage() {
       })
     } else {
       progressUnsubscribeRef.current = window.electronAPI.export.onProgress((payload: ExportProgress) => {
+        const now = Date.now()
+        const currentSessionId = String(payload.currentSessionId || '').trim()
+        if (payload.phase === 'complete' && currentSessionId && !settledSessionIdsFromProgress.has(currentSessionId)) {
+          settledSessionIdsFromProgress.add(currentSessionId)
+          const phaseLabel = String(payload.phaseLabel || '')
+          const isFailed = phaseLabel.includes('失败')
+          if (!isFailed) {
+            const contentTypes = next.payload.contentType
+              ? [next.payload.contentType]
+              : (next.payload.options ? inferContentTypesFromOptions(next.payload.options) : [])
+            markSessionExported([currentSessionId], now)
+            if (contentTypes.length > 0) {
+              markContentExported([currentSessionId], contentTypes, now)
+            }
+          }
+        }
+
         updateTask(next.id, task => {
           if (task.status !== 'running') return task
-          const now = Date.now()
           const performance = applyProgressToTaskPerformance(task, payload, now)
+          const settledSessionIds = task.settledSessionIds || []
+          const nextSettledSessionIds = (
+            payload.phase === 'complete' &&
+            currentSessionId &&
+            !settledSessionIds.includes(currentSessionId)
+          )
+            ? [...settledSessionIds, currentSessionId]
+            : settledSessionIds
           return {
             ...task,
             progress: {
@@ -2321,6 +2348,7 @@ function ExportPage() {
               phaseProgress: payload.phaseProgress || 0,
               phaseTotal: payload.phaseTotal || 0
             },
+            settledSessionIds: nextSettledSessionIds,
             performance
           }
         })
@@ -2470,6 +2498,7 @@ function ExportPage() {
       id: createTaskId(),
       title,
       status: 'queued',
+      settledSessionIds: [],
       createdAt: Date.now(),
       payload: {
         sessionIds: exportDialog.sessionIds,
@@ -2586,7 +2615,9 @@ function ExportPage() {
     const set = new Set<string>()
     for (const task of tasks) {
       if (task.status !== 'running') continue
+      const settled = new Set(task.settledSessionIds || [])
       for (const id of task.payload.sessionIds) {
+        if (settled.has(id)) continue
         set.add(id)
       }
     }

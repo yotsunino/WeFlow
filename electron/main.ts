@@ -708,9 +708,9 @@ function createSessionChatWindow(sessionId: string) {
   const isDark = nativeTheme.shouldUseDarkColors
 
   const win = new BrowserWindow({
-    width: 980,
+    width: 600,
     height: 820,
-    minWidth: 560,
+    minWidth: 420,
     minHeight: 560,
     icon: iconPath,
     webPreferences: {
