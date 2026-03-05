@@ -177,6 +177,13 @@ const contentTypeLabels: Record<ContentType, string> = {
   emoji: '表情包'
 }
 
+const conversationTabLabels: Record<ConversationTab, string> = {
+  private: '私聊',
+  group: '群聊',
+  official: '公众号',
+  former_friend: '曾经的好友'
+}
+
 const getContentTypeLabel = (type: ContentType): string => {
   return contentTypeLabels[type] || type
 }
@@ -690,6 +697,20 @@ interface SessionExportCacheMeta {
   source: 'memory' | 'disk' | 'fresh'
 }
 
+type SessionLoadStageStatus = 'pending' | 'loading' | 'done' | 'failed'
+
+interface SessionLoadStageState {
+  status: SessionLoadStageStatus
+  startedAt?: number
+  finishedAt?: number
+  error?: string
+}
+
+interface SessionLoadTraceState {
+  messageCount: SessionLoadStageState
+  mediaMetrics: SessionLoadStageState
+}
+
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
   let timer: ReturnType<typeof setTimeout> | null = null
   try {
@@ -908,6 +929,13 @@ const hasCompleteSessionMediaMetric = (metricRaw: SessionContentMetric | undefin
     typeof normalizeMessageCount(metricRaw.emojiMessages) === 'number'
   )
 }
+
+const createDefaultSessionLoadStage = (): SessionLoadStageState => ({ status: 'pending' })
+
+const createDefaultSessionLoadTrace = (): SessionLoadTraceState => ({
+  messageCount: createDefaultSessionLoadStage(),
+  mediaMetrics: createDefaultSessionLoadStage()
+})
 
 const WriteLayoutSelector = memo(function WriteLayoutSelector({
   writeLayout,
@@ -1250,12 +1278,14 @@ function ExportPage() {
   const [isLoadingSessionCounts, setIsLoadingSessionCounts] = useState(false)
   const [isSessionCountStageReady, setIsSessionCountStageReady] = useState(false)
   const [sessionContentMetrics, setSessionContentMetrics] = useState<Record<string, SessionContentMetric>>({})
+  const [sessionLoadTraceMap, setSessionLoadTraceMap] = useState<Record<string, SessionLoadTraceState>>({})
   const [contactsLoadTimeoutMs, setContactsLoadTimeoutMs] = useState(DEFAULT_CONTACTS_LOAD_TIMEOUT_MS)
   const [contactsLoadSession, setContactsLoadSession] = useState<ContactsLoadSession | null>(null)
   const [contactsLoadIssue, setContactsLoadIssue] = useState<ContactsLoadIssue | null>(null)
   const [showContactsDiagnostics, setShowContactsDiagnostics] = useState(false)
   const [contactsDiagnosticTick, setContactsDiagnosticTick] = useState(Date.now())
   const [showSessionDetailPanel, setShowSessionDetailPanel] = useState(false)
+  const [showSessionLoadDetailModal, setShowSessionLoadDetailModal] = useState(false)
   const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
   const [isLoadingSessionDetail, setIsLoadingSessionDetail] = useState(false)
   const [isLoadingSessionDetailExtra, setIsLoadingSessionDetailExtra] = useState(false)
@@ -1421,6 +1451,96 @@ function ExportPage() {
   useEffect(() => {
     sessionContentMetricsRef.current = sessionContentMetrics
   }, [sessionContentMetrics])
+
+  const patchSessionLoadTraceStage = useCallback((
+    sessionIds: string[],
+    stageKey: keyof SessionLoadTraceState,
+    status: SessionLoadStageStatus,
+    options?: { force?: boolean; error?: string }
+  ) => {
+    if (sessionIds.length === 0) return
+    const now = Date.now()
+    setSessionLoadTraceMap(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const sessionIdRaw of sessionIds) {
+        const sessionId = String(sessionIdRaw || '').trim()
+        if (!sessionId) continue
+        const prevTrace = next[sessionId] || createDefaultSessionLoadTrace()
+        const prevStage = prevTrace[stageKey] || createDefaultSessionLoadStage()
+        if (!options?.force && prevStage.status === 'done' && status !== 'done') {
+          continue
+        }
+        let stageChanged = false
+        const nextStage: SessionLoadStageState = { ...prevStage }
+        if (nextStage.status !== status) {
+          nextStage.status = status
+          stageChanged = true
+        }
+        if (status === 'loading') {
+          if (!nextStage.startedAt) {
+            nextStage.startedAt = now
+            stageChanged = true
+          }
+          if (nextStage.finishedAt) {
+            nextStage.finishedAt = undefined
+            stageChanged = true
+          }
+          if (nextStage.error) {
+            nextStage.error = undefined
+            stageChanged = true
+          }
+        } else if (status === 'done') {
+          if (!nextStage.startedAt) {
+            nextStage.startedAt = now
+            stageChanged = true
+          }
+          if (!nextStage.finishedAt) {
+            nextStage.finishedAt = now
+            stageChanged = true
+          }
+          if (nextStage.error) {
+            nextStage.error = undefined
+            stageChanged = true
+          }
+        } else if (status === 'failed') {
+          if (!nextStage.startedAt) {
+            nextStage.startedAt = now
+            stageChanged = true
+          }
+          if (!nextStage.finishedAt) {
+            nextStage.finishedAt = now
+            stageChanged = true
+          }
+          const nextError = options?.error || '加载失败'
+          if (nextStage.error !== nextError) {
+            nextStage.error = nextError
+            stageChanged = true
+          }
+        } else if (status === 'pending') {
+          if (nextStage.startedAt !== undefined) {
+            nextStage.startedAt = undefined
+            stageChanged = true
+          }
+          if (nextStage.finishedAt !== undefined) {
+            nextStage.finishedAt = undefined
+            stageChanged = true
+          }
+          if (nextStage.error !== undefined) {
+            nextStage.error = undefined
+            stageChanged = true
+          }
+        }
+        if (!stageChanged) continue
+        next[sessionId] = {
+          ...prevTrace,
+          [stageKey]: nextStage
+        }
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
 
   const loadContactsList = useCallback(async (options?: { scopeKey?: string }) => {
     const scopeKey = options?.scopeKey || await ensureExportCacheScope()
@@ -1953,12 +2073,13 @@ function ExportPage() {
       incoming.push(sessionId)
     }
     if (incoming.length === 0) return
+    patchSessionLoadTraceStage(incoming, 'mediaMetrics', 'pending')
     if (front) {
       sessionMediaMetricQueueRef.current = [...incoming, ...sessionMediaMetricQueueRef.current]
     } else {
       sessionMediaMetricQueueRef.current.push(...incoming)
     }
-  }, [isSessionMediaMetricReady])
+  }, [isSessionMediaMetricReady, patchSessionLoadTraceStage])
 
   const applySessionMediaMetricsFromStats = useCallback((data?: Record<string, SessionExportMetric>) => {
     if (!data) return
@@ -2011,6 +2132,7 @@ function ExportPage() {
         if (batchSessionIds.length === 0) {
           continue
         }
+        patchSessionLoadTraceStage(batchSessionIds, 'mediaMetrics', 'loading')
 
         try {
           const cacheResult = await window.electronAPI.chat.getExportSessionStats(
@@ -2035,12 +2157,20 @@ function ExportPage() {
           }
         } catch (error) {
           console.error('导出页加载会话媒体统计失败:', error)
+          patchSessionLoadTraceStage(batchSessionIds, 'mediaMetrics', 'failed', {
+            error: String(error)
+          })
         } finally {
+          const completedSessionIds: string[] = []
           for (const sessionId of batchSessionIds) {
             sessionMediaMetricLoadingSetRef.current.delete(sessionId)
             if (isSessionMediaMetricReady(sessionId)) {
               sessionMediaMetricReadySetRef.current.add(sessionId)
+              completedSessionIds.push(sessionId)
             }
+          }
+          if (completedSessionIds.length > 0) {
+            patchSessionLoadTraceStage(completedSessionIds, 'mediaMetrics', 'done')
           }
         }
 
@@ -2052,7 +2182,7 @@ function ExportPage() {
         void runSessionMediaMetricWorker(runId)
       }
     }
-  }, [applySessionMediaMetricsFromStats, isSessionMediaMetricReady])
+  }, [applySessionMediaMetricsFromStats, isSessionMediaMetricReady, patchSessionLoadTraceStage])
 
   const scheduleSessionMediaMetricWorker = useCallback(() => {
     if (!isSessionCountStageReady) return
@@ -2076,6 +2206,9 @@ function ExportPage() {
     setIsSessionCountStageReady(false)
 
     const exportableSessions = sourceSessions.filter(session => session.hasSession)
+    const exportableSessionIds = exportableSessions.map(session => session.username)
+    const exportableSessionIdSet = new Set(exportableSessionIds)
+    patchSessionLoadTraceStage(exportableSessionIds, 'messageCount', 'pending', { force: true })
     const seededHintCounts = exportableSessions.reduce<Record<string, number>>((acc, session) => {
       const nextCount = normalizeMessageCount(session.messageCountHint)
       if (typeof nextCount === 'number') {
@@ -2084,12 +2217,17 @@ function ExportPage() {
       return acc
     }, {})
     const seededPersistentCounts = Object.entries(options?.seededCounts || {}).reduce<Record<string, number>>((acc, [sessionId, countRaw]) => {
+      if (!exportableSessionIdSet.has(sessionId)) return acc
       const nextCount = normalizeMessageCount(countRaw)
       if (typeof nextCount === 'number') {
         acc[sessionId] = nextCount
       }
       return acc
     }, {})
+    const seededPersistentSessionIds = Object.keys(seededPersistentCounts)
+    if (seededPersistentSessionIds.length > 0) {
+      patchSessionLoadTraceStage(seededPersistentSessionIds, 'messageCount', 'done')
+    }
     const seededCounts = { ...seededHintCounts, ...seededPersistentCounts }
     const accumulatedCounts: Record<string, number> = { ...seededCounts }
     setSessionMessageCounts(seededCounts)
@@ -2146,10 +2284,19 @@ function ExportPage() {
         return { ...accumulatedCounts }
       }
       if (prioritizedSessionIds.length > 0) {
+        patchSessionLoadTraceStage(prioritizedSessionIds, 'messageCount', 'loading')
         const priorityResult = await window.electronAPI.chat.getSessionMessageCounts(prioritizedSessionIds)
         if (isStale()) return { ...accumulatedCounts }
         if (priorityResult.success) {
           applyCounts(priorityResult.counts)
+          patchSessionLoadTraceStage(prioritizedSessionIds, 'messageCount', 'done')
+        } else {
+          patchSessionLoadTraceStage(
+            prioritizedSessionIds,
+            'messageCount',
+            'failed',
+            { error: priorityResult.error || '总消息数加载失败' }
+          )
         }
       }
 
@@ -2157,14 +2304,26 @@ function ExportPage() {
         return { ...accumulatedCounts }
       }
       if (remainingSessionIds.length > 0) {
+        patchSessionLoadTraceStage(remainingSessionIds, 'messageCount', 'loading')
         const remainingResult = await window.electronAPI.chat.getSessionMessageCounts(remainingSessionIds)
         if (isStale()) return { ...accumulatedCounts }
         if (remainingResult.success) {
           applyCounts(remainingResult.counts)
+          patchSessionLoadTraceStage(remainingSessionIds, 'messageCount', 'done')
+        } else {
+          patchSessionLoadTraceStage(
+            remainingSessionIds,
+            'messageCount',
+            'failed',
+            { error: remainingResult.error || '总消息数加载失败' }
+          )
         }
       }
     } catch (error) {
       console.error('导出页加载会话消息总数失败:', error)
+      patchSessionLoadTraceStage(exportableSessionIds, 'messageCount', 'failed', {
+        error: String(error)
+      })
     } finally {
       if (!isStale()) {
         setIsLoadingSessionCounts(false)
@@ -2179,7 +2338,7 @@ function ExportPage() {
       }
     }
     return { ...accumulatedCounts }
-  }, [mergeSessionContentMetrics])
+  }, [mergeSessionContentMetrics, patchSessionLoadTraceStage])
 
   const loadSessions = useCallback(async () => {
     const loadToken = Date.now()
@@ -2192,6 +2351,7 @@ function ExportPage() {
     sessionCountRequestIdRef.current += 1
     setSessionMessageCounts({})
     setSessionContentMetrics({})
+    setSessionLoadTraceMap({})
     setIsLoadingSessionCounts(false)
     setIsSessionCountStageReady(false)
 
@@ -2270,6 +2430,10 @@ function ExportPage() {
           }
           return acc
         }, {})
+        const cachedContentMetricSessionIds = Object.keys(cachedContentMetrics)
+        if (cachedContentMetricSessionIds.length > 0) {
+          patchSessionLoadTraceStage(cachedContentMetricSessionIds, 'mediaMetrics', 'done')
+        }
 
         if (isStale()) return
         if (Object.keys(cachedMessageCounts).length > 0) {
@@ -2481,7 +2645,7 @@ function ExportPage() {
     } finally {
       if (!isStale()) setIsLoading(false)
     }
-  }, [ensureExportCacheScope, loadContactsCaches, loadSessionMessageCounts, mergeSessionContentMetrics, resetSessionMediaMetricLoader, syncContactTypeCounts])
+  }, [ensureExportCacheScope, loadContactsCaches, loadSessionMessageCounts, mergeSessionContentMetrics, patchSessionLoadTraceStage, resetSessionMediaMetricLoader, syncContactTypeCounts])
 
   useEffect(() => {
     if (!isExportRoute) return
@@ -3612,6 +3776,105 @@ function ExportPage() {
     return indexedContacts.map(item => item.contact)
   }, [contactsList, activeTab, searchKeyword, sessionMessageCounts, sessionRowByUsername])
 
+  const keywordMatchedContactUsernameSet = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase()
+    const matched = new Set<string>()
+    for (const contact of contactsList) {
+      if (!contact?.username) continue
+      if (!keyword) {
+        matched.add(contact.username)
+        continue
+      }
+      if (
+        (contact.displayName || '').toLowerCase().includes(keyword) ||
+        (contact.remark || '').toLowerCase().includes(keyword) ||
+        (contact.nickname || '').toLowerCase().includes(keyword) ||
+        (contact.alias || '').toLowerCase().includes(keyword) ||
+        contact.username.toLowerCase().includes(keyword)
+      ) {
+        matched.add(contact.username)
+      }
+    }
+    return matched
+  }, [contactsList, searchKeyword])
+
+  const loadDetailTargetsByTab = useMemo(() => {
+    const targets: Record<ConversationTab, string[]> = {
+      private: [],
+      group: [],
+      official: [],
+      former_friend: []
+    }
+    for (const session of sessions) {
+      if (!session.hasSession) continue
+      if (!keywordMatchedContactUsernameSet.has(session.username)) continue
+      targets[session.kind].push(session.username)
+    }
+    return targets
+  }, [keywordMatchedContactUsernameSet, sessions])
+
+  const formatLoadDetailTime = useCallback((value?: number): string => {
+    if (!value || !Number.isFinite(value)) return '--'
+    return new Date(value).toLocaleTimeString('zh-CN', { hour12: false })
+  }, [])
+
+  const getLoadDetailStatusLabel = useCallback((loaded: number, total: number, hasStarted: boolean): string => {
+    if (total <= 0) return '待加载'
+    if (loaded >= total) return `已完成 ${total}`
+    if (hasStarted) return `加载中 ${loaded}/${total}`
+    return '待加载'
+  }, [])
+
+  const summarizeLoadTraceForTab = useCallback((
+    sessionIds: string[],
+    stageKey: keyof SessionLoadTraceState
+  ) => {
+    const total = sessionIds.length
+    let loaded = 0
+    let hasStarted = false
+    let earliestStart: number | undefined
+    let latestFinish: number | undefined
+    for (const sessionId of sessionIds) {
+      const stage = sessionLoadTraceMap[sessionId]?.[stageKey]
+      if (stage?.status === 'done') {
+        loaded += 1
+      }
+      if (stage?.status === 'loading' || stage?.status === 'failed' || typeof stage?.startedAt === 'number') {
+        hasStarted = true
+      }
+      if (typeof stage?.startedAt === 'number') {
+        earliestStart = earliestStart === undefined
+          ? stage.startedAt
+          : Math.min(earliestStart, stage.startedAt)
+      }
+      if (typeof stage?.finishedAt === 'number') {
+        latestFinish = latestFinish === undefined
+          ? stage.finishedAt
+          : Math.max(latestFinish, stage.finishedAt)
+      }
+    }
+    return {
+      total,
+      loaded,
+      statusLabel: getLoadDetailStatusLabel(loaded, total, hasStarted),
+      startedAt: earliestStart,
+      finishedAt: latestFinish
+    }
+  }, [getLoadDetailStatusLabel, sessionLoadTraceMap])
+
+  const sessionLoadDetailRows = useMemo(() => {
+    const tabOrder: ConversationTab[] = ['private', 'group', 'official', 'former_friend']
+    return tabOrder.map((tab) => {
+      const sessionIds = loadDetailTargetsByTab[tab] || []
+      return {
+        tab,
+        label: conversationTabLabels[tab],
+        messageCount: summarizeLoadTraceForTab(sessionIds, 'messageCount'),
+        mediaMetrics: summarizeLoadTraceForTab(sessionIds, 'mediaMetrics')
+      }
+    })
+  }, [loadDetailTargetsByTab, summarizeLoadTraceForTab])
+
   useEffect(() => {
     contactsVirtuosoRef.current?.scrollToIndex({ index: 0, align: 'start' })
     setIsContactsListAtTop(true)
@@ -4053,6 +4316,17 @@ function ExportPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closeSessionDetailPanel, showSessionDetailPanel])
 
+  useEffect(() => {
+    if (!showSessionLoadDetailModal) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowSessionLoadDetailModal(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showSessionLoadDetailModal])
+
   const handleCopyDetailField = useCallback(async (text: string, field: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -4167,6 +4441,21 @@ function ExportPage() {
   const taskRunningCount = tasks.filter(task => task.status === 'running').length
   const taskQueuedCount = tasks.filter(task => task.status === 'queued').length
   const hasFilteredContacts = filteredContacts.length > 0
+  const sessionLoadDetailUpdatedAt = useMemo(() => {
+    let latest = 0
+    for (const row of sessionLoadDetailRows) {
+      const candidateTimes = [
+        row.messageCount.finishedAt || row.messageCount.startedAt || 0,
+        row.mediaMetrics.finishedAt || row.mediaMetrics.startedAt || 0
+      ]
+      for (const candidate of candidateTimes) {
+        if (candidate > latest) {
+          latest = candidate
+        }
+      }
+    }
+    return latest
+  }, [sessionLoadDetailRows])
   const closeTaskCenter = useCallback(() => {
     setIsTaskCenterOpen(false)
     setExpandedPerfTaskId(null)
@@ -4517,6 +4806,14 @@ function ExportPage() {
             '你可以先在列表中筛选目标会话，再批量导出，结果会保留每个会话的结构与时间线。'
           ]}
         />
+        <button
+          className="session-load-detail-entry"
+          type="button"
+          onClick={() => setShowSessionLoadDetailModal(true)}
+        >
+          <ClipboardList size={14} />
+          <span>数据加载详情</span>
+        </button>
       </div>
       <div className="session-table-section" ref={sessionTableSectionRef}>
         <div className="session-table-layout">
@@ -4671,6 +4968,83 @@ function ExportPage() {
               </div>
             )}
           </div>
+
+          {showSessionLoadDetailModal && (
+            <div
+              className="session-load-detail-overlay"
+              onClick={() => setShowSessionLoadDetailModal(false)}
+            >
+              <div
+                className="session-load-detail-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="数据加载详情"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="session-load-detail-header">
+                  <div>
+                    <h4>数据加载详情</h4>
+                    <p>
+                      更新时间：
+                      {sessionLoadDetailUpdatedAt > 0
+                        ? new Date(sessionLoadDetailUpdatedAt).toLocaleString('zh-CN')
+                        : '暂无'}
+                    </p>
+                  </div>
+                  <button
+                    className="session-load-detail-close"
+                    type="button"
+                    onClick={() => setShowSessionLoadDetailModal(false)}
+                    aria-label="关闭"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="session-load-detail-body">
+                  <section className="session-load-detail-block">
+                    <h5>总消息数</h5>
+                    <div className="session-load-detail-table">
+                      <div className="session-load-detail-row header">
+                        <span>会话类型</span>
+                        <span>加载状态</span>
+                        <span>开始时间</span>
+                        <span>完成时间</span>
+                      </div>
+                      {sessionLoadDetailRows.map((row) => (
+                        <div className="session-load-detail-row" key={`message-${row.tab}`}>
+                          <span>{row.label}</span>
+                          <span>{row.messageCount.statusLabel}</span>
+                          <span>{formatLoadDetailTime(row.messageCount.startedAt)}</span>
+                          <span>{formatLoadDetailTime(row.messageCount.finishedAt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="session-load-detail-block">
+                    <h5>多媒体统计（表情包/图片/视频/语音）</h5>
+                    <div className="session-load-detail-table">
+                      <div className="session-load-detail-row header">
+                        <span>会话类型</span>
+                        <span>加载状态</span>
+                        <span>开始时间</span>
+                        <span>完成时间</span>
+                      </div>
+                      {sessionLoadDetailRows.map((row) => (
+                        <div className="session-load-detail-row" key={`media-${row.tab}`}>
+                          <span>{row.label}</span>
+                          <span>{row.mediaMetrics.statusLabel}</span>
+                          <span>{formatLoadDetailTime(row.mediaMetrics.startedAt)}</span>
+                          <span>{formatLoadDetailTime(row.mediaMetrics.finishedAt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          )}
 
           {showSessionDetailPanel && (
             <div
