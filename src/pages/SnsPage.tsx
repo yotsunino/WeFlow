@@ -353,8 +353,7 @@ export default function SnsPage() {
         if (overviewStatsStatus === 'loading') {
             return '统计中...'
         }
-        const myPostsLabel = overviewStats.myPosts === null ? '--' : String(overviewStats.myPosts)
-        return `共 ${overviewStats.totalPosts} 条 ｜ 我的朋友圈 ${myPostsLabel} 条 ｜ ${formatDateOnly(overviewStats.earliestTime)} ~ ${formatDateOnly(overviewStats.latestTime)} ｜ ${overviewStats.totalFriends} 位好友`
+        return `共 ${overviewStats.totalPosts} 条 ｜ ${formatDateOnly(overviewStats.earliestTime)} ~ ${formatDateOnly(overviewStats.latestTime)} ｜ ${overviewStats.totalFriends} 位好友`
     }
 
     const loadPosts = useCallback(async (options: { reset?: boolean, direction?: 'older' | 'newer' } = {}) => {
