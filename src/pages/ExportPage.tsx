@@ -6259,19 +6259,21 @@ function ExportPage() {
             </div>
 
             <div className="dialog-body">
-              <div className="dialog-section">
-                <h4>导出范围</h4>
-                <div className="scope-tag-row">
-                  <span className="scope-tag">{scopeLabel}</span>
-                  <span className="scope-count">{scopeCountLabel}</span>
+              {exportDialog.scope !== 'single' && (
+                <div className="dialog-section">
+                  <h4>导出范围</h4>
+                  <div className="scope-tag-row">
+                    <span className="scope-tag">{scopeLabel}</span>
+                    <span className="scope-count">{scopeCountLabel}</span>
+                  </div>
+                  <div className="scope-list">
+                    {exportDialog.sessionNames.slice(0, 20).map(name => (
+                      <span key={name} className="scope-item">{name}</span>
+                    ))}
+                    {exportDialog.sessionNames.length > 20 && <span className="scope-item">... 还有 {exportDialog.sessionNames.length - 20} 个</span>}
+                  </div>
                 </div>
-                <div className="scope-list">
-                  {exportDialog.sessionNames.slice(0, 20).map(name => (
-                    <span key={name} className="scope-item">{name}</span>
-                  ))}
-                  {exportDialog.sessionNames.length > 20 && <span className="scope-item">... 还有 {exportDialog.sessionNames.length - 20} 个</span>}
-                </div>
-              </div>
+              )}
 
               {shouldShowFormatSection && (
                 <div className="dialog-section">
