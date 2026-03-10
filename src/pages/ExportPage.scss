@@ -1622,6 +1622,8 @@
 
   .tab-btn {
     flex: 0 0 auto;
+    width: auto;
+    max-width: max-content;
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-secondary);
@@ -1632,6 +1634,7 @@
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
 
     .tab-btn-content {
       display: inline-flex;
