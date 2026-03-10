@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronLeft } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import './ChatAnalysisHeader.scss'
 
@@ -7,6 +7,7 @@ export type ChatAnalysisMode = 'private' | 'group'
 
 interface ChatAnalysisHeaderProps {
   currentMode: ChatAnalysisMode
+  actions?: ReactNode
 }
 
 const MODE_CONFIG: Record<ChatAnalysisMode, { label: string; path: string }> = {
@@ -20,7 +21,7 @@ const MODE_CONFIG: Record<ChatAnalysisMode, { label: string; path: string }> = {
   }
 }
 
-function ChatAnalysisHeader({ currentMode }: ChatAnalysisHeaderProps) {
+function ChatAnalysisHeader({ currentMode, actions }: ChatAnalysisHeaderProps) {
   const navigate = useNavigate()
   const currentLabel = MODE_CONFIG[currentMode].label
   const [menuOpen, setMenuOpen] = useState(false)
@@ -95,6 +96,8 @@ function ChatAnalysisHeader({ currentMode }: ChatAnalysisHeaderProps) {
           )}
         </div>
       </div>
+
+      {actions ? <div className="chat-analysis-actions">{actions}</div> : null}
     </div>
   )
 }

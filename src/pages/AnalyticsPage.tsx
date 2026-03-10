@@ -424,6 +424,19 @@ function AnalyticsPage() {
     </div>
   )
 
+  const analyticsHeaderActions = (
+    <>
+      <button className="btn btn-secondary" onClick={handleRefresh} disabled={isLoading}>
+        <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
+        {isLoading ? '刷新中...' : '刷新'}
+      </button>
+      <button className="btn btn-secondary" onClick={openExcludeDialog}>
+        <UserMinus size={16} />
+        排除好友{excludedUsernames.size > 0 ? ` (${excludedUsernames.size})` : ''}
+      </button>
+    </>
+  )
+
   if (isLoading && !isLoaded) {
     return renderPageShell(
       <div className="loading-container">
@@ -463,21 +476,9 @@ function AnalyticsPage() {
   }
 
 
-  return renderPageShell(
-    <>
-      <div className="page-header">
-        <h1>私聊分析</h1>
-        <div className="header-actions">
-          <button className="btn btn-secondary" onClick={handleRefresh} disabled={isLoading}>
-            <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
-            {isLoading ? '刷新中...' : '刷新'}
-          </button>
-          <button className="btn btn-secondary" onClick={openExcludeDialog}>
-            <UserMinus size={16} />
-            排除好友{excludedUsernames.size > 0 ? ` (${excludedUsernames.size})` : ''}
-          </button>
-        </div>
-      </div>
+  return (
+    <div className="analytics-page-shell">
+      <ChatAnalysisHeader currentMode="private" actions={analyticsHeaderActions} />
       <div className="page-scroll">
         <section className="page-section">
           <div className="stats-overview">
@@ -625,7 +626,7 @@ function AnalyticsPage() {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
