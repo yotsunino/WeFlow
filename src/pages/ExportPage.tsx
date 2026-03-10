@@ -6338,13 +6338,22 @@ function ExportPage() {
                   <div className="table-toolbar">
                     <div className="table-tabs" role="tablist" aria-label="会话类型">
                       <button className={`tab-btn ${activeTab === 'private' ? 'active' : ''}`} onClick={() => setActiveTab('private')}>
-                        私聊 {isTabCountComputing ? <span className="count-loading">计算中<span className="animated-ellipsis" aria-hidden="true">...</span></span> : tabCounts.private}
+                        <span className="tab-btn-content">
+                          <span>私聊</span>
+                          <span>{isTabCountComputing ? <span className="count-loading">计算中<span className="animated-ellipsis" aria-hidden="true">...</span></span> : tabCounts.private}</span>
+                        </span>
                       </button>
                       <button className={`tab-btn ${activeTab === 'group' ? 'active' : ''}`} onClick={() => setActiveTab('group')}>
-                        群聊 {isTabCountComputing ? <span className="count-loading">计算中<span className="animated-ellipsis" aria-hidden="true">...</span></span> : tabCounts.group}
+                        <span className="tab-btn-content">
+                          <span>群聊</span>
+                          <span>{isTabCountComputing ? <span className="count-loading">计算中<span className="animated-ellipsis" aria-hidden="true">...</span></span> : tabCounts.group}</span>
+                        </span>
                       </button>
                       <button className={`tab-btn ${activeTab === 'former_friend' ? 'active' : ''}`} onClick={() => setActiveTab('former_friend')}>
-                        曾经的好友 {isTabCountComputing ? <span className="count-loading">计算中<span className="animated-ellipsis" aria-hidden="true">...</span></span> : tabCounts.former_friend}
+                        <span className="tab-btn-content">
+                          <span>曾经的好友</span>
+                          <span>{isTabCountComputing ? <span className="count-loading">计算中<span className="animated-ellipsis" aria-hidden="true">...</span></span> : tabCounts.former_friend}</span>
+                        </span>
                       </button>
                     </div>
 

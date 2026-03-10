@@ -1625,14 +1625,20 @@
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-secondary);
-    padding: 7px 8px;
+    padding: 7px 6px;
     border-radius: 999px;
     cursor: pointer;
     font-size: 13px;
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+
+    .tab-btn-content {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      line-height: 1;
+    }
 
     &.active {
       border-color: var(--primary);
