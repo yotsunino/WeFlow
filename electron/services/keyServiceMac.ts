@@ -23,6 +23,7 @@ export class KeyServiceMac {
   private machVmRegion: any = null
   private machVmReadOverwrite: any = null
   private machPortDeallocate: any = null
+  private _needsElevation = false
 
   private getHelperPath(): string {
     const isPackaged = app.isPackaged
@@ -47,6 +48,26 @@ export class KeyServiceMac {
     }
 
     throw new Error('xkey_helper not found')
+  }
+
+  private getImageScanHelperPath(): string {
+    const isPackaged = app.isPackaged
+    const candidates: string[] = []
+
+    if (isPackaged) {
+      candidates.push(join(process.resourcesPath, 'resources', 'image_scan_helper'))
+      candidates.push(join(process.resourcesPath, 'image_scan_helper'))
+    } else {
+      const cwd = process.cwd()
+      candidates.push(join(cwd, 'resources', 'image_scan_helper'))
+      candidates.push(join(app.getAppPath(), 'resources', 'image_scan_helper'))
+    }
+
+    for (const path of candidates) {
+      if (existsSync(path)) return path
+    }
+
+    throw new Error('image_scan_helper not found')
   }
 
   private getDylibPath(): string {
@@ -258,7 +279,7 @@ export class KeyServiceMac {
         stdout += data
         stdoutBuf += data
         const parts = stdoutBuf.split(/\r?\n/)
-        stdoutBuf = parts.pop() || ''
+        stdoutBuf = parts.pop()!
       })
 
       child.stderr.on('data', (chunk: Buffer | string) => {
@@ -266,7 +287,7 @@ export class KeyServiceMac {
         stderr += data
         stderrBuf += data
         const parts = stderrBuf.split(/\r?\n/)
-        stderrBuf = parts.pop() || ''
+        stderrBuf = parts.pop()!
         for (const line of parts) processHelperLine(line.trim())
       })
 
@@ -337,13 +358,13 @@ export class KeyServiceMac {
       const result = await execFileAsync('osascript', scriptLines.flatMap(line => ['-e', line]), {
         timeout: waitMs + 20_000
       })
-      stdout = result.stdout || ''
+      stdout = result.stdout
     } catch (e: any) {
       const msg = `${e?.stderr || ''}\n${e?.stdout || ''}\n${e?.message || ''}`.trim()
       throw new Error(msg || 'elevated helper execution failed')
     }
 
-    const lines = String(stdout || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean)
+    const lines = String(stdout).split(/\r?\n/).map(x => x.trim()).filter(Boolean)
     const last = lines[lines.length - 1]
     if (!last) throw new Error('elevated helper returned empty output')
 
@@ -614,6 +635,32 @@ export class KeyServiceMac {
     ciphertext: Buffer,
     onProgress?: (message: string) => void
   ): Promise<string | null> {
+    // 优先通过 image_scan_helper 子进程调用
+    try {
+      const helperPath = this.getImageScanHelperPath()
+      const ciphertextHex = ciphertext.toString('hex')
+
+      // 1) 直接运行 helper（有正式签名的 debugger entitlement 时可用）
+      if (!this._needsElevation) {
+        const direct = await this._spawnScanHelper(helperPath, pid, ciphertextHex, false)
+        if (direct.key) return direct.key
+        if (direct.permissionError) {
+          console.warn('[KeyServiceMac] task_for_pid 权限不足，切换到 osascript 提权模式')
+          this._needsElevation = true
+          onProgress?.('需要管理员权限，请在弹出的对话框中输入密码...')
+        }
+      }
+
+      // 2) 通过 osascript 以管理员权限运行 helper（SIP 下 ad-hoc 签名无法获取 task_for_pid）
+      if (this._needsElevation) {
+        const elevated = await this._spawnScanHelper(helperPath, pid, ciphertextHex, true)
+        if (elevated.key) return elevated.key
+      }
+    } catch (e: any) {
+      console.warn('[KeyServiceMac] image_scan_helper unavailable, fallback to Mach API:', e?.message)
+    }
+
+    // fallback: 直接通过 Mach API 扫描内存（Electron 进程可能没有 task_for_pid 权限）
     if (!this.ensureMachApis()) return null
 
     const VM_PROT_READ = 0x1
@@ -706,6 +753,45 @@ export class KeyServiceMac {
     } finally {
       try { this.machPortDeallocate(selfTask, task) } catch { }
     }
+  }
+
+  private _spawnScanHelper(
+    helperPath: string, pid: number, ciphertextHex: string, elevated: boolean
+  ): Promise<{ key: string | null; permissionError: boolean }> {
+    return new Promise((resolve, reject) => {
+      let child: ReturnType<typeof spawn>
+      if (elevated) {
+        const shellCmd = `'${helperPath}' ${pid} ${ciphertextHex}`
+        child = spawn('osascript', ['-e', `do shell script ${JSON.stringify(shellCmd)} with administrator privileges`],
+          { stdio: ['ignore', 'pipe', 'pipe'] })
+      } else {
+        child = spawn(helperPath, [String(pid), ciphertextHex], { stdio: ['ignore', 'pipe', 'pipe'] })
+      }
+      const tag = elevated ? '[image_scan_helper:elevated]' : '[image_scan_helper]'
+      let stdout = '', stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString()
+        console.log(tag, chunk.toString().trim())
+      })
+      child.on('error', reject)
+      child.on('close', () => {
+        const permissionError = !elevated && stderr.includes('task_for_pid failed')
+        try {
+          const lines = stdout.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
+          const last = lines[lines.length - 1]
+          if (!last) { resolve({ key: null, permissionError }); return }
+          const payload = JSON.parse(last)
+          resolve({
+            key: payload?.success && payload?.aesKey ? payload.aesKey : null,
+            permissionError
+          })
+        } catch {
+          resolve({ key: null, permissionError })
+        }
+      })
+      setTimeout(() => { try { child.kill('SIGTERM') } catch {} }, elevated ? 60_000 : 30_000)
+    })
   }
 
   private async findWeChatPid(): Promise<number | null> {

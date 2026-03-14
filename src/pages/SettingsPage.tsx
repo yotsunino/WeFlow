@@ -897,6 +897,21 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
     }
   }
 
+  const handleClearLog = async () => {
+    const confirmed = window.confirm('确定清空 wcdb.log 吗？')
+    if (!confirmed) return
+    try {
+      const result = await window.electronAPI.log.clear()
+      if (!result.success) {
+        showMessage(result.error || '清空日志失败', false)
+        return
+      }
+      showMessage('日志已清空', true)
+    } catch (e: any) {
+      showMessage(`清空日志失败: ${e}`, false)
+    }
+  }
+
   const handleClearAnalyticsCache = async () => {
     if (isClearingCache) return
     setIsClearingAnalyticsCache(true)
@@ -1379,15 +1394,12 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
             scheduleConfigSave('keys', () => syncCurrentKeys({ imageAesKey: value, wxid }))
           }}
         />
-        <div className="form-hint" style={{ color: '#f59e0b', margin: '6px 0' }}>
-          ⚠️ 快速获取方案基于本地缓存计算，可能因账号信息不匹配而不准确。若图片无法解密，请使用「内存扫描」方案。
-        </div>
         <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-          <button className="btn btn-secondary btn-sm" onClick={handleAutoGetImageKey} disabled={isFetchingImageKey} title="从本地缓存快速计算（可能不准确）">
-            <Plug size={14} /> {isFetchingImageKey ? '获取中...' : '快速获取（缓存计算）'}
+          <button className="btn btn-primary btn-sm" onClick={handleAutoGetImageKey} disabled={isFetchingImageKey} title="从本地缓存快速计算">
+            <Plug size={14} /> {isFetchingImageKey ? '获取中...' : '缓存计算（推荐）'}
           </button>
-          <button className="btn btn-primary btn-sm" onClick={handleScanImageKeyFromMemory} disabled={isFetchingImageKey} title="扫描微信进程内存，准确率更高">
-            {isFetchingImageKey ? '扫描中...' : '内存扫描（推荐）'}
+          <button className="btn btn-secondary btn-sm" onClick={handleScanImageKeyFromMemory} disabled={isFetchingImageKey} title="扫描微信进程内存">
+            {isFetchingImageKey ? '扫描中...' : '内存扫描'}
           </button>
         </div>
         {isFetchingImageKey ? (
@@ -1399,7 +1411,7 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
         ) : (
           imageKeyStatus && <div className="form-hint status-text" style={{ marginTop: '8px' }}>{imageKeyStatus}</div>
         )}
-        <span className="form-hint">内存扫描需要微信正在运行，并在微信中打开 2-3 张图片大图后再点击</span>
+        <span className="form-hint">优先推荐缓存计算方案。若图片无法解密，可使用内存扫描（需微信运行并打开 2-3 张图片大图）</span>
       </div>
 
       <div className="form-group">
@@ -1429,6 +1441,9 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
           </button>
           <button className="btn btn-secondary" onClick={handleCopyLog}>
             <Copy size={16} /> 复制日志内容
+          </button>
+          <button className="btn btn-secondary" onClick={handleClearLog}>
+            <Trash2 size={16} /> 清空日志
           </button>
         </div>
       </div>
@@ -2046,7 +2061,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                 <RefreshCw size={16} className={isCheckingUpdate ? 'spin' : ''} />
                 {isCheckingUpdate ? '检查中...' : '检查更新'}
               </button>
-
             </div>
           )}
         </div>

@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   log: {
     getPath: () => ipcRenderer.invoke('log:getPath'),
     read: () => ipcRenderer.invoke('log:read'),
+    clear: () => ipcRenderer.invoke('log:clear'),
     debug: (data: any) => ipcRenderer.send('log:debug', data)
   },
 

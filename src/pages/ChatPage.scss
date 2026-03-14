@@ -4442,18 +4442,23 @@
 
 // 折叠群入口样式
 .session-item.fold-entry {
-  background: var(--card-inner-bg, rgba(0,0,0,0.03));
+  cursor: pointer;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background: var(--hover-bg, rgba(0,0,0,0.05));
+  }
 
   .fold-entry-avatar {
     width: 48px;
     height: 48px;
     border-radius: 8px;
-    background: var(--primary-color, #07c160);
+    background: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: #fff;
+    color: #fa9d3b;
   }
 
   .session-name {

@@ -356,18 +356,19 @@ const SessionItem = React.memo(function SessionItem({
   if (isFoldEntry) {
     return (
       <div
-        className={`session-item fold-entry`}
+        className={`session-item fold-entry ${isActive ? 'active' : ''}`}
         onClick={() => onSelect(session)}
       >
         <div className="fold-entry-avatar">
-          <FolderClosed size={22} />
+          <MessageSquare size={22} />
         </div>
         <div className="session-info">
           <div className="session-top">
-            <span className="session-name">折叠的群聊</span>
+            <span className="session-name">折叠的聊天</span>
+            <span className="session-time">{timeText}</span>
           </div>
           <div className="session-bottom">
-            <span className="session-summary">{session.summary || ''}</span>
+            <span className="session-summary">{session.summary || '暂无消息'}</span>
           </div>
         </div>
       </div>
@@ -2966,10 +2967,51 @@ function ChatPage(props: ChatPageProps) {
       setFilteredSessions([])
       return
     }
-    const visible = sessions.filter(s => {
+
+    // 检查是否有折叠的群聊
+    const foldedGroups = sessions.filter(s => s.isFolded && !s.username.toLowerCase().includes('placeholder_foldgroup'))
+    const hasFoldedGroups = foldedGroups.length > 0
+
+    let visible = sessions.filter(s => {
       if (s.isFolded && !s.username.toLowerCase().includes('placeholder_foldgroup')) return false
       return true
     })
+
+    // 如果有折叠的群聊，但列表中没有入口，则插入入口
+    if (hasFoldedGroups && !visible.some(s => s.username.toLowerCase().includes('placeholder_foldgroup'))) {
+      // 找到最新的折叠消息
+      const latestFolded = foldedGroups.reduce((latest, current) => {
+        const latestTime = latest.sortTimestamp || latest.lastTimestamp
+        const currentTime = current.sortTimestamp || current.lastTimestamp
+        return currentTime > latestTime ? current : latest
+      })
+
+      const foldEntry: ChatSession = {
+        username: 'placeholder_foldgroup',
+        displayName: '折叠的聊天',
+        summary: `${latestFolded.displayName || latestFolded.username}: ${latestFolded.summary}`,
+        type: 0,
+        sortTimestamp: latestFolded.sortTimestamp || latestFolded.lastTimestamp,
+        lastTimestamp: latestFolded.lastTimestamp || latestFolded.sortTimestamp,
+        lastMsgType: 0,
+        unreadCount: foldedGroups.reduce((sum, s) => sum + (s.unreadCount || 0), 0),
+        isMuted: false,
+        isFolded: false
+      }
+
+      // 按时间戳插入到正确位置
+      const foldTime = foldEntry.sortTimestamp || foldEntry.lastTimestamp
+      const insertIndex = visible.findIndex(s => {
+        const sTime = s.sortTimestamp || s.lastTimestamp
+        return sTime < foldTime
+      })
+      if (insertIndex === -1) {
+        visible.push(foldEntry)
+      } else {
+        visible.splice(insertIndex, 0, foldEntry)
+      }
+    }
+
     if (!searchKeyword.trim()) {
       setFilteredSessions(visible)
       return

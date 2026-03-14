@@ -660,16 +660,13 @@ function createImageViewerWindow(imagePath: string, liveVideoPath?: string) {
       nodeIntegration: false,
       webSecurity: false // 允许加载本地文件
     },
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#00000000',
-      symbolColor: '#ffffff',
-      height: 40
-    },
+    frame: false,
     show: false,
     backgroundColor: '#000000',
     autoHideMenuBar: true
   })
+
+  setupCustomTitleBarWindow(win)
 
   win.once('ready-to-show', () => {
     win.show()
@@ -970,6 +967,17 @@ function registerIpcHandlers() {
       const logPath = join(app.getPath('userData'), 'logs', 'wcdb.log')
       const content = await readFile(logPath, 'utf8')
       return { success: true, content }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('log:clear', async () => {
+    try {
+      const logPath = join(app.getPath('userData'), 'logs', 'wcdb.log')
+      await mkdir(dirname(logPath), { recursive: true })
+      await writeFile(logPath, '', 'utf8')
+      return { success: true }
     } catch (e) {
       return { success: false, error: String(e) }
     }

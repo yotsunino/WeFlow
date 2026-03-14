@@ -173,7 +173,6 @@ export class WcdbCore {
           }
         } catch {}
       }
-
       this.connectMonitorPipe(pipePath)
       return true
     } catch (e) {
@@ -190,13 +189,18 @@ export class WcdbCore {
     setTimeout(() => {
       if (!this.monitorCallback) return
 
-      this.monitorPipeClient = net.createConnection(this.monitorPipePath, () => {
-      })
+      this.monitorPipeClient = net.createConnection(this.monitorPipePath, () => {})
 
       let buffer = ''
       this.monitorPipeClient.on('data', (data: Buffer) => {
-        buffer += data.toString('utf8')
-        const lines = buffer.split('\n')
+        const rawChunk = data.toString('utf8')
+        // macOS 侧可能使用 '\0' 或无换行分隔，统一归一化并兜底拆包
+        const normalizedChunk = rawChunk
+          .replace(/\u0000/g, '\n')
+          .replace(/}\s*{/g, '}\n{')
+
+        buffer += normalizedChunk
+        const lines = buffer.split(/\r?\n/)
         buffer = lines.pop() || ''
         for (const line of lines) {
           if (line.trim()) {
@@ -208,9 +212,22 @@ export class WcdbCore {
             }
           }
         }
+
+        // 兜底：如果没有分隔符但已形成完整 JSON，则直接上报
+        const tail = buffer.trim()
+        if (tail.startsWith('{') && tail.endsWith('}')) {
+          try {
+            const parsed = JSON.parse(tail)
+            this.monitorCallback?.(parsed.action || 'update', tail)
+            buffer = ''
+          } catch {
+            // 不可解析则继续等待下一块数据
+          }
+        }
       })
 
       this.monitorPipeClient.on('error', () => {
+        // 保持静默，与现有错误处理策略一致
       })
 
       this.monitorPipeClient.on('close', () => {

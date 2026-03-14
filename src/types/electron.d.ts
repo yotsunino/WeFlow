@@ -69,6 +69,7 @@ export interface ElectronAPI {
   log: {
     getPath: () => Promise<string>
     read: () => Promise<{ success: boolean; content?: string; error?: string }>
+    clear: () => Promise<{ success: boolean; error?: string }>
     debug: (data: any) => void
   }
   diagnostics: {

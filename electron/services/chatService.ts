@@ -359,8 +359,9 @@ class ChatService {
     // 这种方式更高效，且不占用 JS 线程，并能直接监听 session/message 目录变更
     wcdbService.setMonitor((type, json) => {
       this.handleSessionStatsMonitorChange(type, json)
+      const windows = BrowserWindow.getAllWindows()
       // 广播给所有渲染进程窗口
-      BrowserWindow.getAllWindows().forEach((win) => {
+      windows.forEach((win) => {
         if (!win.isDestroyed()) {
           win.webContents.send('wcdb-change', { type, json })
         }

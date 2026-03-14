@@ -20,15 +20,17 @@ if (parentPort) {
                     result = { success: true }
                     break
                 case 'setMonitor':
-                    core.setMonitor((type, json) => {
+                    {
+                    const monitorOk = core.setMonitor((type, json) => {
                         parentPort!.postMessage({
                             id: -1,
                             type: 'monitor',
                             payload: { type, json }
                         })
                     })
-                    result = { success: true }
+                    result = { success: monitorOk }
                     break
+                    }
                 case 'testConnection':
                     result = await core.testConnection(payload.dbPath, payload.hexKey, payload.wxid)
                     break

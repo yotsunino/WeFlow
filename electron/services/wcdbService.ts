@@ -136,7 +136,7 @@ export class WcdbService {
    */
   setMonitor(callback: (type: string, json: string) => void): void {
     this.monitorListener = callback;
-    this.callWorker('setMonitor').catch(() => { });
+    this.callWorker<{ success?: boolean }>('setMonitor').catch(() => { });
   }
 
   /**
