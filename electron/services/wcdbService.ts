@@ -174,10 +174,10 @@ export class WcdbService {
   /**
    * 关闭服务
    */
-  shutdown(): void {
-    this.close()
+  async shutdown(): Promise<void> {
+    try { await this.close() } catch {}
     if (this.worker) {
-      this.worker.terminate()
+      try { await this.worker.terminate() } catch {}
       this.worker = null
     }
   }

@@ -1,5 +1,5 @@
 import './preload-env'
-import { app, BrowserWindow, ipcMain, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, session, Tray, Menu, nativeImage } from 'electron'
 import { Worker } from 'worker_threads'
 import { join, dirname } from 'path'
 import { autoUpdater } from 'electron-updater'
@@ -96,6 +96,7 @@ const keyService = process.platform === 'darwin'
 let mainWindowReady = false
 let shouldShowMain = true
 let isAppQuitting = false
+let tray: Tray | null = null
 
 // 更新下载状态管理（Issue #294 修复）
 let isDownloadInProgress = false
@@ -352,6 +353,13 @@ function createWindow(options: { autoShow?: boolean } = {}) {
     callback(false)
   })
 
+  win.on('close', (e) => {
+    if (isAppQuitting) return
+    // 关闭主窗口时隐藏到状态栏而不是退出
+    e.preventDefault()
+    win.hide()
+  })
+
   win.on('closed', () => {
     if (mainWindow !== win) return
 
@@ -359,7 +367,6 @@ function createWindow(options: { autoShow?: boolean } = {}) {
     mainWindowReady = false
 
     if (process.platform !== 'darwin' && !isAppQuitting) {
-      // 隐藏通知窗也是 BrowserWindow，必须销毁，否则会阻止应用退出。
       destroyNotificationWindow()
       if (BrowserWindow.getAllWindows().length === 0) {
         app.quit()
@@ -2439,6 +2446,55 @@ app.whenReady().then(async () => {
   updateSplashProgress(30, '正在加载界面...')
   mainWindow = createWindow({ autoShow: false })
 
+  // 初始化系统托盘图标
+  const trayIconPath = process.platform === 'win32'
+    ? join(process.resourcesPath, 'icon.ico')
+    : join(process.resourcesPath, 'resources', 'icon.icns')
+  const trayIconFallback = join(__dirname, '..', 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.icns')
+  const resolvedTrayIcon = existsSync(trayIconPath) ? trayIconPath : trayIconFallback
+  try {
+    tray = new Tray(resolvedTrayIcon)
+    tray.setToolTip('WeFlow')
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '显示主窗口',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.show()
+            mainWindow.focus()
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => {
+          isAppQuitting = true
+          app.quit()
+        }
+      }
+    ])
+    tray.setContextMenu(contextMenu)
+    tray.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isVisible()) {
+          mainWindow.focus()
+        } else {
+          mainWindow.show()
+          mainWindow.focus()
+        }
+      }
+    })
+    tray.on('double-click', () => {
+      if (mainWindow) {
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    })
+  } catch (e) {
+    console.warn('[Tray] Failed to create tray icon:', e)
+  }
+
   // 配置网络服务
   session.defaultSession.webRequest.onBeforeSendHeaders(
     {
@@ -2486,12 +2542,20 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', async () => {
   isAppQuitting = true
+  // 销毁 tray 图标
+  if (tray) { try { tray.destroy() } catch {} tray = null }
   // 通知窗使用 hide 而非 close，退出时主动销毁，避免残留窗口阻塞进程退出。
   destroyNotificationWindow()
+  // 兜底：5秒后强制退出，防止某个异步任务卡住导致进程残留
+  const forceExitTimer = setTimeout(() => {
+    console.warn('[App] Force exit after timeout')
+    app.exit(0)
+  }, 5000)
+  forceExitTimer.unref()
   // 停止 HTTP 服务器，释放 TCP 端口占用，避免进程无法退出
   try { await httpService.stop() } catch {}
   // 终止 wcdb Worker 线程，避免线程阻止进程退出
-  try { wcdbService.shutdown() } catch {}
+  try { await wcdbService.shutdown() } catch {}
 })
 
 app.on('window-all-closed', () => {
