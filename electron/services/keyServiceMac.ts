@@ -136,7 +136,7 @@ export class KeyServiceMac {
       if (sipStatus.enabled) {
         return {
           success: false,
-          error: 'SIP (系统完整性保护) 已开启，无法获取密钥。请关闭 SIP 后重试。\n\n关闭方法：\n1. 重启 Mac 并按住 Command + R 进入恢复模式\n2. 打开终端，输入: csrutil disable\n3. 重启电脑'
+          error: 'SIP (系统完整性保护) 已开启，无法获取密钥。请关闭 SIP 后重试。\n\n关闭方法：\n1. Intel 芯片：重启 Mac 并按住 Command + R 进入恢复模式\n2. Apple 芯片（M 系列）：关机后长按开机（指纹）键，选择“设置（选项）”进入恢复模式\n3. 打开终端，输入: csrutil disable\n4. 重启电脑'
         }
       }
 

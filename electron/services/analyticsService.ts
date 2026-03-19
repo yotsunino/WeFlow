@@ -68,29 +68,14 @@ class AnalyticsService {
     return new Set(this.getExcludedUsernamesList())
   }
 
-  private escapeSqlValue(value: string): string {
-    return value.replace(/'/g, "''")
-  }
-
   private async getAliasMap(usernames: string[]): Promise<Record<string, string>> {
     const map: Record<string, string> = {}
     if (usernames.length === 0) return map
 
-    // C++ 层不支持参数绑定，直接内联转义后的字符串值
-    const chunkSize = 200
-    for (let i = 0; i < usernames.length; i += chunkSize) {
-      const chunk = usernames.slice(i, i + chunkSize)
-      const inList = chunk.map((u) => `'${this.escapeSqlValue(u)}'`).join(',')
-      const sql = `SELECT username, alias FROM contact WHERE username IN (${inList})`
-      const result = await wcdbService.execQuery('contact', null, sql)
-      if (!result.success || !result.rows) continue
-      for (const row of result.rows as Record<string, any>[]) {
-        const username = row.username || ''
-        const alias = row.alias || ''
-        if (username && alias) {
-          map[username] = alias
-        }
-      }
+    const result = await wcdbService.getContactAliasMap(usernames)
+    if (!result.success || !result.map) return map
+    for (const [username, alias] of Object.entries(result.map)) {
+      if (username && alias) map[username] = alias
     }
 
     return map

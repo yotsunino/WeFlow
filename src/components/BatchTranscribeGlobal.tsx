@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Loader2, X, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react'
+import { Loader2, X, CheckCircle, XCircle, AlertCircle, Clock, Mic } from 'lucide-react'
 import { useBatchTranscribeStore } from '../stores/batchTranscribeStore'
 import '../styles/batchTranscribe.scss'
 
@@ -17,6 +17,7 @@ export const BatchTranscribeGlobal: React.FC = () => {
     result,
     sessionName,
     startTime,
+    taskType,
     setShowToast,
     setShowResult
   } = useBatchTranscribeStore()
@@ -64,7 +65,7 @@ export const BatchTranscribeGlobal: React.FC = () => {
           <div className="batch-progress-toast-header">
             <div className="batch-progress-toast-title">
               <Loader2 size={14} className="spin" />
-              <span>批量转写中{sessionName ? `（${sessionName}）` : ''}</span>
+              <span>{taskType === 'decrypt' ? '批量解密语音中' : '批量转写中'}{sessionName ? `（${sessionName}）` : ''}</span>
             </div>
             <button className="batch-progress-toast-close" onClick={() => setShowToast(false)} title="最小化">
               <X size={14} />
@@ -108,8 +109,8 @@ export const BatchTranscribeGlobal: React.FC = () => {
         <div className="batch-modal-overlay" onClick={() => setShowResult(false)}>
           <div className="batch-modal-content batch-result-modal" onClick={(e) => e.stopPropagation()}>
             <div className="batch-modal-header">
-              <CheckCircle size={20} />
-              <h3>转写完成</h3>
+              {taskType === 'decrypt' ? <Mic size={20} /> : <CheckCircle size={20} />}
+              <h3>{taskType === 'decrypt' ? '语音解密完成' : '转写完成'}</h3>
             </div>
             <div className="batch-modal-body">
               <div className="result-summary">
@@ -129,7 +130,7 @@ export const BatchTranscribeGlobal: React.FC = () => {
               {result.fail > 0 && (
                 <div className="result-tip">
                   <AlertCircle size={16} />
-                  <span>部分语音转写失败，可能是语音文件损坏或网络问题</span>
+                  <span>{taskType === 'decrypt' ? '部分语音解密失败，可能是语音未缓存或文件损坏' : '部分语音转写失败，可能是语音文件损坏或网络问题'}</span>
                 </div>
               )}
             </div>

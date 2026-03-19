@@ -222,6 +222,48 @@ export class WcdbService {
     return this.callWorker('getMessageCounts', { sessionIds })
   }
 
+  async getSessionMessageCounts(sessionIds: string[]): Promise<{ success: boolean; counts?: Record<string, number>; error?: string }> {
+    return this.callWorker('getSessionMessageCounts', { sessionIds })
+  }
+
+  async getSessionMessageTypeStats(
+    sessionId: string,
+    beginTimestamp: number = 0,
+    endTimestamp: number = 0
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.callWorker('getSessionMessageTypeStats', { sessionId, beginTimestamp, endTimestamp })
+  }
+
+  async getSessionMessageTypeStatsBatch(
+    sessionIds: string[],
+    options?: {
+      beginTimestamp?: number
+      endTimestamp?: number
+      quickMode?: boolean
+      includeGroupSenderCount?: boolean
+    }
+  ): Promise<{ success: boolean; data?: Record<string, any>; error?: string }> {
+    return this.callWorker('getSessionMessageTypeStatsBatch', { sessionIds, options })
+  }
+
+  async getSessionMessageDateCounts(sessionId: string): Promise<{ success: boolean; counts?: Record<string, number>; error?: string }> {
+    return this.callWorker('getSessionMessageDateCounts', { sessionId })
+  }
+
+  async getSessionMessageDateCountsBatch(sessionIds: string[]): Promise<{ success: boolean; data?: Record<string, Record<string, number>>; error?: string }> {
+    return this.callWorker('getSessionMessageDateCountsBatch', { sessionIds })
+  }
+
+  async getMessagesByType(
+    sessionId: string,
+    localType: number,
+    ascending = false,
+    limit = 0,
+    offset = 0
+  ): Promise<{ success: boolean; rows?: any[]; error?: string }> {
+    return this.callWorker('getMessagesByType', { sessionId, localType, ascending, limit, offset })
+  }
+
   /**
    * 获取联系人昵称
    */
@@ -287,6 +329,14 @@ export class WcdbService {
     return this.callWorker('getMessageMeta', { dbPath, tableName, limit, offset })
   }
 
+  async getMessageTableColumns(dbPath: string, tableName: string): Promise<{ success: boolean; columns?: string[]; error?: string }> {
+    return this.callWorker('getMessageTableColumns', { dbPath, tableName })
+  }
+
+  async getMessageTableTimeRange(dbPath: string, tableName: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.callWorker('getMessageTableTimeRange', { dbPath, tableName })
+  }
+
   /**
    * 获取联系人详情
    */
@@ -299,6 +349,26 @@ export class WcdbService {
    */
   async getContactStatus(usernames: string[]): Promise<{ success: boolean; map?: Record<string, { isFolded: boolean; isMuted: boolean }>; error?: string }> {
     return this.callWorker('getContactStatus', { usernames })
+  }
+
+  async getContactTypeCounts(): Promise<{ success: boolean; counts?: { private: number; group: number; official: number; former_friend: number }; error?: string }> {
+    return this.callWorker('getContactTypeCounts')
+  }
+
+  async getContactsCompact(usernames: string[] = []): Promise<{ success: boolean; contacts?: any[]; error?: string }> {
+    return this.callWorker('getContactsCompact', { usernames })
+  }
+
+  async getContactAliasMap(usernames: string[]): Promise<{ success: boolean; map?: Record<string, string>; error?: string }> {
+    return this.callWorker('getContactAliasMap', { usernames })
+  }
+
+  async getContactFriendFlags(usernames: string[]): Promise<{ success: boolean; map?: Record<string, boolean>; error?: string }> {
+    return this.callWorker('getContactFriendFlags', { usernames })
+  }
+
+  async getChatRoomExtBuffer(chatroomId: string): Promise<{ success: boolean; extBuffer?: string; error?: string }> {
+    return this.callWorker('getChatRoomExtBuffer', { chatroomId })
   }
 
   /**
@@ -372,7 +442,7 @@ export class WcdbService {
   }
 
   /**
-   * 执行 SQL 查询（支持参数化查询）
+   * 执行 SQL 查询（仅主进程内部使用：fallback/diagnostic/低频兼容）
    */
   async execQuery(kind: string, path: string | null, sql: string, params: any[] = []): Promise<{ success: boolean; rows?: any[]; error?: string }> {
     return this.callWorker('execQuery', { kind, path, sql, params })
@@ -417,6 +487,40 @@ export class WcdbService {
     return this.callWorker('getVoiceData', { sessionId, createTime, candidates, localId, svrId })
   }
 
+  async getVoiceDataBatch(
+    requests: Array<{ session_id: string; create_time: number; local_id?: number; svr_id?: string | number; candidates?: string[] }>
+  ): Promise<{ success: boolean; rows?: Array<{ index: number; hex?: string }>; error?: string }> {
+    return this.callWorker('getVoiceDataBatch', { requests })
+  }
+
+  async getMediaSchemaSummary(dbPath: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.callWorker('getMediaSchemaSummary', { dbPath })
+  }
+
+  async getHeadImageBuffers(usernames: string[]): Promise<{ success: boolean; map?: Record<string, string>; error?: string }> {
+    return this.callWorker('getHeadImageBuffers', { usernames })
+  }
+
+  async resolveImageHardlink(md5: string, accountDir?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.callWorker('resolveImageHardlink', { md5, accountDir })
+  }
+
+  async resolveImageHardlinkBatch(
+    requests: Array<{ md5: string; accountDir?: string }>
+  ): Promise<{ success: boolean; rows?: Array<{ index: number; md5: string; success: boolean; data?: any; error?: string }>; error?: string }> {
+    return this.callWorker('resolveImageHardlinkBatch', { requests })
+  }
+
+  async resolveVideoHardlinkMd5(md5: string, dbPath?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.callWorker('resolveVideoHardlinkMd5', { md5, dbPath })
+  }
+
+  async resolveVideoHardlinkMd5Batch(
+    requests: Array<{ md5: string; dbPath?: string }>
+  ): Promise<{ success: boolean; rows?: Array<{ index: number; md5: string; success: boolean; data?: any; error?: string }>; error?: string }> {
+    return this.callWorker('resolveVideoHardlinkMd5Batch', { requests })
+  }
+
   /**
    * 获取朋友圈
    */
@@ -429,6 +533,14 @@ export class WcdbService {
    */
   async getSnsAnnualStats(beginTimestamp: number, endTimestamp: number): Promise<{ success: boolean; data?: any; error?: string }> {
     return this.callWorker('getSnsAnnualStats', { beginTimestamp, endTimestamp })
+  }
+
+  async getSnsUsernames(): Promise<{ success: boolean; usernames?: string[]; error?: string }> {
+    return this.callWorker('getSnsUsernames')
+  }
+
+  async getSnsExportStats(myWxid?: string): Promise<{ success: boolean; data?: { totalPosts: number; totalFriends: number; myPosts: number | null }; error?: string }> {
+    return this.callWorker('getSnsExportStats', { myWxid })
   }
 
   /**

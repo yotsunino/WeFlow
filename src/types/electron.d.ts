@@ -1,4 +1,4 @@
-import type { ChatSession, Message, Contact, ContactInfo } from './models'
+import type { ChatSession, Message, Contact, ContactInfo, ChatRecordItem } from './models'
 
 export interface SessionChatWindowOpenOptions {
   source?: 'chat' | 'export'
@@ -24,6 +24,8 @@ export interface ElectronAPI {
     resizeToFitVideo: (videoWidth: number, videoHeight: number) => Promise<void>
     openImageViewerWindow: (imagePath: string, liveVideoPath?: string) => Promise<void>
     openChatHistoryWindow: (sessionId: string, messageId: number) => Promise<boolean>
+    openChatHistoryPayloadWindow: (payload: { sessionId: string; title?: string; recordList: ChatRecordItem[] }) => Promise<boolean>
+    getChatHistoryPayload: (payloadId: string) => Promise<{ success: boolean; payload?: { sessionId: string; title?: string; recordList: ChatRecordItem[] }; error?: string }>
     openSessionChatWindow: (sessionId: string, options?: SessionChatWindowOpenOptions) => Promise<boolean>
   }
   config: {
@@ -319,8 +321,7 @@ export interface ElectronAPI {
     getMessageDateCounts: (sessionId: string) => Promise<{ success: boolean; counts?: Record<string, number>; error?: string }>
     resolveVoiceCache: (sessionId: string, msgId: string) => Promise<{ success: boolean; hasCache: boolean; data?: string }>
     getVoiceTranscript: (sessionId: string, msgId: string, createTime?: number) => Promise<{ success: boolean; transcript?: string; error?: string }>
-    onVoiceTranscriptPartial: (callback: (payload: { msgId: string; text: string }) => void) => () => void
-    execQuery: (kind: string, path: string | null, sql: string) => Promise<{ success: boolean; rows?: any[]; error?: string }>
+    onVoiceTranscriptPartial: (callback: (payload: { sessionId?: string; msgId: string; createTime?: number; text: string }) => void) => () => void
     getMessage: (sessionId: string, localId: number) => Promise<{ success: boolean; message?: Message; error?: string }>
     onWcdbChange: (callback: (event: any, data: { type: string; json: string }) => void) => () => void
   }
@@ -862,6 +863,16 @@ export interface ExportProgress {
   phaseProgress?: number
   phaseTotal?: number
   phaseLabel?: string
+  collectedMessages?: number
+  exportedMessages?: number
+  estimatedTotalMessages?: number
+  writtenFiles?: number
+  mediaDoneFiles?: number
+  mediaCacheHitFiles?: number
+  mediaCacheMissFiles?: number
+  mediaCacheFillFiles?: number
+  mediaDedupReuseFiles?: number
+  mediaBytesWritten?: number
 }
 
 export interface WxidInfo {

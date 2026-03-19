@@ -75,7 +75,7 @@ function App() {
   const isAgreementWindow = location.pathname === '/agreement-window'
   const isOnboardingWindow = location.pathname === '/onboarding-window'
   const isVideoPlayerWindow = location.pathname === '/video-player-window'
-  const isChatHistoryWindow = location.pathname.startsWith('/chat-history/')
+  const isChatHistoryWindow = location.pathname.startsWith('/chat-history/') || location.pathname.startsWith('/chat-history-inline/')
   const isStandaloneChatWindow = location.pathname === '/chat-window'
   const isNotificationWindow = location.pathname === '/notification-window'
   const isSettingsRoute = location.pathname === '/settings'
@@ -660,6 +660,7 @@ function App() {
               <Route path="/sns" element={<SnsPage />} />
               <Route path="/contacts" element={<ContactsPage />} />
               <Route path="/chat-history/:sessionId/:messageId" element={<ChatHistoryPage />} />
+              <Route path="/chat-history-inline/:payloadId" element={<ChatHistoryPage />} />
             </Routes>
           </RouteGuard>
         </main>

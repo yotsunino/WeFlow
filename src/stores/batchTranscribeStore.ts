@@ -1,8 +1,12 @@
 import { create } from 'zustand'
 
+export type BatchVoiceTaskType = 'transcribe' | 'decrypt'
+
 export interface BatchTranscribeState {
   /** 是否正在批量转写 */
   isBatchTranscribing: boolean
+  /** 当前批量任务类型 */
+  taskType: BatchVoiceTaskType
   /** 转写进度 */
   progress: { current: number; total: number }
   /** 是否显示进度浮窗 */
@@ -16,7 +20,7 @@ export interface BatchTranscribeState {
   sessionName: string
 
   // Actions
-  startTranscribe: (total: number, sessionName: string) => void
+  startTranscribe: (total: number, sessionName: string, taskType?: BatchVoiceTaskType) => void
   updateProgress: (current: number, total: number) => void
   finishTranscribe: (success: number, fail: number) => void
   setShowToast: (show: boolean) => void
@@ -26,6 +30,7 @@ export interface BatchTranscribeState {
 
 export const useBatchTranscribeStore = create<BatchTranscribeState>((set) => ({
   isBatchTranscribing: false,
+  taskType: 'transcribe',
   progress: { current: 0, total: 0 },
   showToast: false,
   showResult: false,
@@ -33,8 +38,9 @@ export const useBatchTranscribeStore = create<BatchTranscribeState>((set) => ({
   sessionName: '',
   startTime: 0,
 
-  startTranscribe: (total, sessionName) => set({
+  startTranscribe: (total, sessionName, taskType = 'transcribe') => set({
     isBatchTranscribing: true,
+    taskType,
     showToast: true,
     progress: { current: 0, total },
     showResult: false,
@@ -60,6 +66,7 @@ export const useBatchTranscribeStore = create<BatchTranscribeState>((set) => ({
 
   reset: () => set({
     isBatchTranscribing: false,
+    taskType: 'transcribe',
     progress: { current: 0, total: 0 },
     showToast: false,
     showResult: false,

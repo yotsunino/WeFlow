@@ -137,18 +137,22 @@
   margin-top: 1px;
   font-size: 13px;
   line-height: 1;
-  color: #16a34a;
+  color: var(--primary, #07c160);
   font-weight: 700;
 }
 
 .jump-date-popover .day-cell.selected .day-count {
-  color: #86efac;
+  color: color-mix(in srgb, #ffffff 78%, var(--primary, #07c160) 22%);
 }
 
 .jump-date-popover .day-count-loading {
   position: static;
   margin-top: 1px;
-  color: #22c55e;
+  color: var(--primary, #07c160);
+}
+
+.jump-date-popover .day-cell.selected .day-count-loading {
+  color: color-mix(in srgb, #ffffff 78%, var(--primary, #07c160) 22%);
 }
 
 .jump-date-popover .spin {

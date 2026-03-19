@@ -34,7 +34,8 @@ export default defineConfig({
                 'whisper-node',
                 'shelljs',
                 'exceljs',
-                'node-llama-cpp'
+                'node-llama-cpp',
+                'sudo-prompt'
               ]
             }
           }
@@ -120,6 +121,26 @@ export default defineConfig({
               ],
               output: {
                 entryFileNames: 'transcribeWorker.js',
+                inlineDynamicImports: true
+              }
+            }
+          }
+        }
+      },
+      {
+        entry: 'electron/exportWorker.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            rollupOptions: {
+              external: [
+                'better-sqlite3',
+                'koffi',
+                'fsevents',
+                'exceljs'
+              ],
+              output: {
+                entryFileNames: 'exportWorker.js',
                 inlineDynamicImports: true
               }
             }

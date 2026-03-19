@@ -59,6 +59,24 @@ if (parentPort) {
                 case 'getMessageCounts':
                     result = await core.getMessageCounts(payload.sessionIds)
                     break
+                case 'getSessionMessageCounts':
+                    result = await core.getSessionMessageCounts(payload.sessionIds)
+                    break
+                case 'getSessionMessageTypeStats':
+                    result = await core.getSessionMessageTypeStats(payload.sessionId, payload.beginTimestamp, payload.endTimestamp)
+                    break
+                case 'getSessionMessageTypeStatsBatch':
+                    result = await core.getSessionMessageTypeStatsBatch(payload.sessionIds, payload.options)
+                    break
+                case 'getSessionMessageDateCounts':
+                    result = await core.getSessionMessageDateCounts(payload.sessionId)
+                    break
+                case 'getSessionMessageDateCountsBatch':
+                    result = await core.getSessionMessageDateCountsBatch(payload.sessionIds)
+                    break
+                case 'getMessagesByType':
+                    result = await core.getMessagesByType(payload.sessionId, payload.localType, payload.ascending, payload.limit, payload.offset)
+                    break
                 case 'getDisplayNames':
                     result = await core.getDisplayNames(payload.usernames)
                     break
@@ -89,11 +107,32 @@ if (parentPort) {
                 case 'getMessageMeta':
                     result = await core.getMessageMeta(payload.dbPath, payload.tableName, payload.limit, payload.offset)
                     break
+                case 'getMessageTableColumns':
+                    result = await core.getMessageTableColumns(payload.dbPath, payload.tableName)
+                    break
+                case 'getMessageTableTimeRange':
+                    result = await core.getMessageTableTimeRange(payload.dbPath, payload.tableName)
+                    break
                 case 'getContact':
                     result = await core.getContact(payload.username)
                     break
                 case 'getContactStatus':
                     result = await core.getContactStatus(payload.usernames)
+                    break
+                case 'getContactTypeCounts':
+                    result = await core.getContactTypeCounts()
+                    break
+                case 'getContactsCompact':
+                    result = await core.getContactsCompact(payload.usernames)
+                    break
+                case 'getContactAliasMap':
+                    result = await core.getContactAliasMap(payload.usernames)
+                    break
+                case 'getContactFriendFlags':
+                    result = await core.getContactFriendFlags(payload.usernames)
+                    break
+                case 'getChatRoomExtBuffer':
+                    result = await core.getChatRoomExtBuffer(payload.chatroomId)
                     break
                 case 'getAggregateStats':
                     result = await core.getAggregateStats(payload.sessionIds, payload.beginTimestamp, payload.endTimestamp)
@@ -149,11 +188,38 @@ if (parentPort) {
                         console.error('[wcdbWorker] getVoiceData failed:', result.error)
                     }
                     break
+                case 'getVoiceDataBatch':
+                    result = await core.getVoiceDataBatch(payload.requests)
+                    break
+                case 'getMediaSchemaSummary':
+                    result = await core.getMediaSchemaSummary(payload.dbPath)
+                    break
+                case 'getHeadImageBuffers':
+                    result = await core.getHeadImageBuffers(payload.usernames)
+                    break
+                case 'resolveImageHardlink':
+                    result = await core.resolveImageHardlink(payload.md5, payload.accountDir)
+                    break
+                case 'resolveImageHardlinkBatch':
+                    result = await core.resolveImageHardlinkBatch(payload.requests)
+                    break
+                case 'resolveVideoHardlinkMd5':
+                    result = await core.resolveVideoHardlinkMd5(payload.md5, payload.dbPath)
+                    break
+                case 'resolveVideoHardlinkMd5Batch':
+                    result = await core.resolveVideoHardlinkMd5Batch(payload.requests)
+                    break
                 case 'getSnsTimeline':
                     result = await core.getSnsTimeline(payload.limit, payload.offset, payload.usernames, payload.keyword, payload.startTime, payload.endTime)
                     break
                 case 'getSnsAnnualStats':
                     result = await core.getSnsAnnualStats(payload.beginTimestamp, payload.endTimestamp)
+                    break
+                case 'getSnsUsernames':
+                    result = await core.getSnsUsernames()
+                    break
+                case 'getSnsExportStats':
+                    result = await core.getSnsExportStats(payload.myWxid)
                     break
                 case 'installSnsBlockDeleteTrigger':
                     result = await core.installSnsBlockDeleteTrigger()

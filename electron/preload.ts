@@ -113,6 +113,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('window:openImageViewerWindow', imagePath, liveVideoPath),
     openChatHistoryWindow: (sessionId: string, messageId: number) =>
       ipcRenderer.invoke('window:openChatHistoryWindow', sessionId, messageId),
+    openChatHistoryPayloadWindow: (payload: { sessionId: string; title?: string; recordList: any[] }) =>
+      ipcRenderer.invoke('window:openChatHistoryPayloadWindow', payload),
+    getChatHistoryPayload: (payloadId: string) =>
+      ipcRenderer.invoke('window:getChatHistoryPayload', payloadId),
     openSessionChatWindow: (
       sessionId: string,
       options?: {
@@ -215,13 +219,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getMessageDateCounts: (sessionId: string) => ipcRenderer.invoke('chat:getMessageDateCounts', sessionId),
     resolveVoiceCache: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:resolveVoiceCache', sessionId, msgId),
     getVoiceTranscript: (sessionId: string, msgId: string, createTime?: number) => ipcRenderer.invoke('chat:getVoiceTranscript', sessionId, msgId, createTime),
-    onVoiceTranscriptPartial: (callback: (payload: { msgId: string; text: string }) => void) => {
-      const listener = (_: any, payload: { msgId: string; text: string }) => callback(payload)
+    onVoiceTranscriptPartial: (callback: (payload: { sessionId?: string; msgId: string; createTime?: number; text: string }) => void) => {
+      const listener = (_: any, payload: { sessionId?: string; msgId: string; createTime?: number; text: string }) => callback(payload)
       ipcRenderer.on('chat:voiceTranscriptPartial', listener)
       return () => ipcRenderer.removeListener('chat:voiceTranscriptPartial', listener)
     },
-    execQuery: (kind: string, path: string | null, sql: string) =>
-      ipcRenderer.invoke('chat:execQuery', kind, path, sql),
     getContacts: () => ipcRenderer.invoke('chat:getContacts'),
     getMessage: (sessionId: string, localId: number) =>
       ipcRenderer.invoke('chat:getMessage', sessionId, localId),
@@ -244,12 +246,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     preload: (payloads: Array<{ sessionId?: string; imageMd5?: string; imageDatName?: string }>) =>
       ipcRenderer.invoke('image:preload', payloads),
     onUpdateAvailable: (callback: (payload: { cacheKey: string; imageMd5?: string; imageDatName?: string }) => void) => {
-      ipcRenderer.on('image:updateAvailable', (_, payload) => callback(payload))
-      return () => ipcRenderer.removeAllListeners('image:updateAvailable')
+      const listener = (_: unknown, payload: { cacheKey: string; imageMd5?: string; imageDatName?: string }) => callback(payload)
+      ipcRenderer.on('image:updateAvailable', listener)
+      return () => ipcRenderer.removeListener('image:updateAvailable', listener)
     },
     onCacheResolved: (callback: (payload: { cacheKey: string; imageMd5?: string; imageDatName?: string; localPath: string }) => void) => {
-      ipcRenderer.on('image:cacheResolved', (_, payload) => callback(payload))
-      return () => ipcRenderer.removeAllListeners('image:cacheResolved')
+      const listener = (_: unknown, payload: { cacheKey: string; imageMd5?: string; imageDatName?: string; localPath: string }) => callback(payload)
+      ipcRenderer.on('image:cacheResolved', listener)
+      return () => ipcRenderer.removeListener('image:cacheResolved', listener)
     }
   },
 
@@ -352,7 +356,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('export:exportSession', sessionId, outputPath, options),
     exportContacts: (outputDir: string, options: any) =>
       ipcRenderer.invoke('export:exportContacts', outputDir, options),
-    onProgress: (callback: (payload: { current: number; total: number; currentSession: string; currentSessionId?: string; phase: string }) => void) => {
+    onProgress: (callback: (payload: {
+      current: number
+      total: number
+      currentSession: string
+      currentSessionId?: string
+      phase: string
+      phaseProgress?: number
+      phaseTotal?: number
+      phaseLabel?: string
+      collectedMessages?: number
+      exportedMessages?: number
+      estimatedTotalMessages?: number
+      writtenFiles?: number
+    }) => void) => {
       ipcRenderer.on('export:progress', (_, payload) => callback(payload))
       return () => ipcRenderer.removeAllListeners('export:progress')
     }

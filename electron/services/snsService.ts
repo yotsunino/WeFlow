@@ -663,100 +663,24 @@ class SnsService {
     }
 
     async getSnsUsernames(): Promise<{ success: boolean; usernames?: string[]; error?: string }> {
-        const collect = (rows?: any[]): string[] => {
-            if (!Array.isArray(rows)) return []
-            const usernames: string[] = []
-            for (const row of rows) {
-                const raw = row?.user_name ?? row?.userName ?? row?.username ?? Object.values(row || {})[0]
-                const username = typeof raw === 'string' ? raw.trim() : String(raw || '').trim()
-                if (username) usernames.push(username)
-            }
-            return usernames
+        const result = await wcdbService.getSnsUsernames()
+        if (!result.success) {
+            return { success: false, error: result.error || '获取朋友圈联系人失败' }
         }
-
-        const primary = await wcdbService.execQuery(
-            'sns',
-            null,
-            "SELECT DISTINCT user_name FROM SnsTimeLine WHERE user_name IS NOT NULL AND user_name <> ''"
-        )
-        const fallback = await wcdbService.execQuery(
-            'sns',
-            null,
-            "SELECT DISTINCT userName FROM SnsTimeLine WHERE userName IS NOT NULL AND userName <> ''"
-        )
-
-        const merged = Array.from(new Set([
-            ...collect(primary.rows),
-            ...collect(fallback.rows)
-        ]))
-
-        // 任一查询成功且拿到用户名即视为成功，避免因为列名差异导致误判为空。
-        if (merged.length > 0) {
-            return { success: true, usernames: merged }
-        }
-
-        // 两条查询都成功但无数据，说明确实没有朋友圈发布者。
-        if (primary.success || fallback.success) {
-            return { success: true, usernames: [] }
-        }
-
-        return { success: false, error: primary.error || fallback.error || '获取朋友圈联系人失败' }
+        return { success: true, usernames: result.usernames || [] }
     }
 
     private async getExportStatsFromTableCount(myWxid?: string): Promise<{ totalPosts: number; totalFriends: number; myPosts: number | null }> {
-        let totalPosts = 0
-        let totalFriends = 0
-        let myPosts: number | null = null
-
-        const postCountResult = await wcdbService.execQuery('sns', null, 'SELECT COUNT(1) AS total FROM SnsTimeLine')
-        if (postCountResult.success && postCountResult.rows && postCountResult.rows.length > 0) {
-            totalPosts = this.parseCountValue(postCountResult.rows[0])
-        }
-
-        if (totalPosts > 0) {
-            const friendCountPrimary = await wcdbService.execQuery(
-                'sns',
-                null,
-                "SELECT COUNT(DISTINCT user_name) AS total FROM SnsTimeLine WHERE user_name IS NOT NULL AND user_name <> ''"
-            )
-            if (friendCountPrimary.success && friendCountPrimary.rows && friendCountPrimary.rows.length > 0) {
-                totalFriends = this.parseCountValue(friendCountPrimary.rows[0])
-            } else {
-                const friendCountFallback = await wcdbService.execQuery(
-                    'sns',
-                    null,
-                    "SELECT COUNT(DISTINCT userName) AS total FROM SnsTimeLine WHERE userName IS NOT NULL AND userName <> ''"
-                )
-                if (friendCountFallback.success && friendCountFallback.rows && friendCountFallback.rows.length > 0) {
-                    totalFriends = this.parseCountValue(friendCountFallback.rows[0])
-                }
-            }
-        }
-
         const normalizedMyWxid = this.toOptionalString(myWxid)
-        if (normalizedMyWxid) {
-            const myPostPrimary = await wcdbService.execQuery(
-                'sns',
-                null,
-                "SELECT COUNT(1) AS total FROM SnsTimeLine WHERE user_name = ?",
-                [normalizedMyWxid]
-            )
-            if (myPostPrimary.success && myPostPrimary.rows && myPostPrimary.rows.length > 0) {
-                myPosts = this.parseCountValue(myPostPrimary.rows[0])
-            } else {
-                const myPostFallback = await wcdbService.execQuery(
-                    'sns',
-                    null,
-                    "SELECT COUNT(1) AS total FROM SnsTimeLine WHERE userName = ?",
-                    [normalizedMyWxid]
-                )
-                if (myPostFallback.success && myPostFallback.rows && myPostFallback.rows.length > 0) {
-                    myPosts = this.parseCountValue(myPostFallback.rows[0])
-                }
-            }
+        const result = await wcdbService.getSnsExportStats(normalizedMyWxid || undefined)
+        if (!result.success || !result.data) {
+            return { totalPosts: 0, totalFriends: 0, myPosts: normalizedMyWxid ? 0 : null }
         }
-
-        return { totalPosts, totalFriends, myPosts }
+        return {
+            totalPosts: Number(result.data.totalPosts || 0),
+            totalFriends: Number(result.data.totalFriends || 0),
+            myPosts: result.data.myPosts === null || result.data.myPosts === undefined ? null : Number(result.data.myPosts || 0)
+        }
     }
 
     async getExportStats(options?: {

@@ -1,6 +1,7 @@
 import './preload-env'
 import { app, BrowserWindow, ipcMain, nativeTheme, session, Tray, Menu, nativeImage } from 'electron'
 import { Worker } from 'worker_threads'
+import { randomUUID } from 'crypto'
 import { join, dirname } from 'path'
 import { autoUpdater } from 'electron-updater'
 import { readFile, writeFile, mkdir, rm, readdir } from 'fs/promises'
@@ -16,6 +17,7 @@ import { groupAnalyticsService } from './services/groupAnalyticsService'
 import { annualReportService } from './services/annualReportService'
 import { exportService, ExportOptions, ExportProgress } from './services/exportService'
 import { KeyService } from './services/keyService'
+import { KeyServiceLinux } from './services/keyServiceLinux'
 import { KeyServiceMac } from './services/keyServiceMac'
 import { voiceTranscribeService } from './services/voiceTranscribeService'
 import { videoService } from './services/videoService'
@@ -27,6 +29,7 @@ import { cloudControlService } from './services/cloudControlService'
 
 import { destroyNotificationWindow, registerNotificationHandlers, showNotification } from './windows/notificationWindow'
 import { httpService } from './services/httpService'
+import { messagePushService } from './services/messagePushService'
 
 
 // 配置自动更新
@@ -89,15 +92,28 @@ let onboardingWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 const sessionChatWindows = new Map<string, BrowserWindow>()
 const sessionChatWindowSources = new Map<string, 'chat' | 'export'>()
-const keyService = process.platform === 'darwin' 
-  ? new KeyServiceMac() as any 
-  : new KeyService()
+
+let keyService: any
+if (process.platform === 'darwin') {
+  keyService = new KeyServiceMac()
+} else if (process.platform === 'linux') {
+  // const { KeyServiceLinux } = require('./services/keyServiceLinux')
+  // keyService = new KeyServiceLinux()
+
+  import('./services/keyServiceLinux').then(({ KeyServiceLinux }) => {
+    keyService = new KeyServiceLinux();
+  });
+
+} else {
+  keyService = new KeyService()
+}
 
 let mainWindowReady = false
 let shouldShowMain = true
 let isAppQuitting = false
 let tray: Tray | null = null
 let isClosePromptVisible = false
+const chatHistoryPayloadStore = new Map<string, { sessionId: string; title?: string; recordList: any[] }>()
 
 type WindowCloseBehavior = 'ask' | 'tray' | 'quit'
 
@@ -272,12 +288,18 @@ const requestMainWindowCloseConfirmation = (win: BrowserWindow): void => {
 function createWindow(options: { autoShow?: boolean } = {}) {
   // 获取图标路径 - 打包后在 resources 目录
   const { autoShow = true } = options
+  let iconName = 'icon.ico';
+  if (process.platform === 'linux') {
+    iconName = 'icon.png';
+  } else if (process.platform === 'darwin') {
+    iconName = 'icon.icns';
+  }
+
   const isDev = !!process.env.VITE_DEV_SERVER_URL
+
   const iconPath = isDev
-    ? join(__dirname, '../public/icon.ico')
-    : (process.platform === 'darwin' 
-        ? join(process.resourcesPath, 'icon.icns')
-        : join(process.resourcesPath, 'icon.ico'))
+      ? join(__dirname, `../public/${iconName}`)
+      : join(process.resourcesPath, iconName);
 
   const win = new BrowserWindow({
     width: 1400,
@@ -749,6 +771,14 @@ function createImageViewerWindow(imagePath: string, liveVideoPath?: string) {
  * 创建独立的聊天记录窗口
  */
 function createChatHistoryWindow(sessionId: string, messageId: number) {
+  return createChatHistoryRouteWindow(`/chat-history/${sessionId}/${messageId}`)
+}
+
+function createChatHistoryPayloadWindow(payloadId: string) {
+  return createChatHistoryRouteWindow(`/chat-history-inline/${payloadId}`)
+}
+
+function createChatHistoryRouteWindow(route: string) {
   const isDev = !!process.env.VITE_DEV_SERVER_URL
   const iconPath = isDev
     ? join(__dirname, '../public/icon.ico')
@@ -783,7 +813,7 @@ function createChatHistoryWindow(sessionId: string, messageId: number) {
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    win.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/chat-history/${sessionId}/${messageId}`)
+    win.loadURL(`${process.env.VITE_DEV_SERVER_URL}#${route}`)
 
     win.webContents.on('before-input-event', (event, input) => {
       if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
@@ -797,7 +827,7 @@ function createChatHistoryWindow(sessionId: string, messageId: number) {
     })
   } else {
     win.loadFile(join(__dirname, '../dist/index.html'), {
-      hash: `/chat-history/${sessionId}/${messageId}`
+      hash: route
     })
   }
 
@@ -965,11 +995,14 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('config:set', async (_, key: string, value: any) => {
-    return configService?.set(key as any, value)
+    const result = configService?.set(key as any, value)
+    void messagePushService.handleConfigChanged(key)
+    return result
   })
 
   ipcMain.handle('config:clear', async () => {
     configService?.clear()
+    messagePushService.handleConfigCleared()
     return true
   })
 
@@ -1235,6 +1268,23 @@ function registerIpcHandlers() {
   ipcMain.handle('window:openChatHistoryWindow', (_, sessionId: string, messageId: number) => {
     createChatHistoryWindow(sessionId, messageId)
     return true
+  })
+
+  ipcMain.handle('window:openChatHistoryPayloadWindow', (_, payload: { sessionId: string; title?: string; recordList: any[] }) => {
+    const payloadId = randomUUID()
+    chatHistoryPayloadStore.set(payloadId, {
+      sessionId: String(payload?.sessionId || '').trim(),
+      title: String(payload?.title || '').trim() || '聊天记录',
+      recordList: Array.isArray(payload?.recordList) ? payload.recordList : []
+    })
+    createChatHistoryPayloadWindow(payloadId)
+    return true
+  })
+
+  ipcMain.handle('window:getChatHistoryPayload', (_, payloadId: string) => {
+    const payload = chatHistoryPayloadStore.get(String(payloadId || '').trim())
+    if (!payload) return { success: false, error: '聊天记录载荷不存在或已失效' }
+    return { success: true, payload }
   })
 
   // 打开会话聊天窗口（同会话仅保留一个窗口并聚焦）
@@ -1611,7 +1661,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('chat:getVoiceTranscript', async (event, sessionId: string, msgId: string, createTime?: number) => {
     return chatService.getVoiceTranscript(sessionId, msgId, createTime, (text) => {
-      event.sender.send('chat:voiceTranscriptPartial', { msgId, text })
+      event.sender.send('chat:voiceTranscriptPartial', { sessionId, msgId, createTime, text })
     })
   })
 
@@ -1621,10 +1671,6 @@ function registerIpcHandlers() {
 
   ipcMain.handle('chat:searchMessages', async (_, keyword: string, sessionId?: string, limit?: number, offset?: number, beginTimestamp?: number, endTimestamp?: number) => {
     return chatService.searchMessages(keyword, sessionId, limit, offset, beginTimestamp, endTimestamp)
-  })
-
-  ipcMain.handle('chat:execQuery', async (_, kind: string, path: string | null, sql: string) => {
-    return chatService.execQuery(kind, path, sql)
   })
 
   ipcMain.handle('sns:getTimeline', async (_, limit: number, offset: number, usernames?: string[], keyword?: string, startTime?: number, endTime?: number) => {
@@ -1838,7 +1884,83 @@ function registerIpcHandlers() {
       }
     }
 
-    return exportService.exportSessions(sessionIds, outputDir, options, onProgress)
+    const runMainFallback = async (reason: string) => {
+      console.warn(`[fallback-export-main] ${reason}`)
+      return exportService.exportSessions(sessionIds, outputDir, options, onProgress)
+    }
+
+    const cfg = configService || new ConfigService()
+    configService = cfg
+    const logEnabled = cfg.get('logEnabled')
+    const resourcesPath = app.isPackaged
+      ? join(process.resourcesPath, 'resources')
+      : join(app.getAppPath(), 'resources')
+    const userDataPath = app.getPath('userData')
+    const workerPath = join(__dirname, 'exportWorker.js')
+
+    const runWorker = async () => {
+      return await new Promise<any>((resolve, reject) => {
+        const worker = new Worker(workerPath, {
+          workerData: {
+            sessionIds,
+            outputDir,
+            options,
+            resourcesPath,
+            userDataPath,
+            logEnabled
+          }
+        })
+
+        let settled = false
+        const finalizeResolve = (value: any) => {
+          if (settled) return
+          settled = true
+          worker.removeAllListeners()
+          void worker.terminate()
+          resolve(value)
+        }
+        const finalizeReject = (error: Error) => {
+          if (settled) return
+          settled = true
+          worker.removeAllListeners()
+          void worker.terminate()
+          reject(error)
+        }
+
+        worker.on('message', (msg: any) => {
+          if (msg && msg.type === 'export:progress') {
+            onProgress(msg.data as ExportProgress)
+            return
+          }
+          if (msg && msg.type === 'export:result') {
+            finalizeResolve(msg.data)
+            return
+          }
+          if (msg && msg.type === 'export:error') {
+            finalizeReject(new Error(String(msg.error || '导出 Worker 执行失败')))
+          }
+        })
+
+        worker.on('error', (error) => {
+          finalizeReject(error instanceof Error ? error : new Error(String(error)))
+        })
+
+        worker.on('exit', (code) => {
+          if (settled) return
+          if (code === 0) {
+            finalizeResolve({ success: false, successCount: 0, failCount: 0, error: '导出 Worker 未返回结果' })
+          } else {
+            finalizeReject(new Error(`导出 Worker 异常退出: ${code}`))
+          }
+        })
+      })
+    }
+
+    try {
+      return await runWorker()
+    } catch (error) {
+      return runMainFallback(error instanceof Error ? error.message : String(error))
+    }
   })
 
   ipcMain.handle('export:exportSession', async (_, sessionId: string, outputPath: string, options: ExportOptions) => {
@@ -2508,6 +2630,10 @@ app.whenReady().then(async () => {
   // 注册 IPC 处理器
   updateSplashProgress(25, '正在初始化...')
   registerIpcHandlers()
+  chatService.addDbMonitorListener((type, json) => {
+    messagePushService.handleDbMonitorChange(type, json)
+  })
+  messagePushService.start()
   await delay(200)
 
   // 检查配置状态
@@ -2518,12 +2644,20 @@ app.whenReady().then(async () => {
   updateSplashProgress(30, '正在加载界面...')
   mainWindow = createWindow({ autoShow: false })
 
-  // 初始化系统托盘图标（与其他窗口 icon 路径逻辑保持一致）
-  const resolvedTrayIcon = process.platform === 'win32'
-    ? join(__dirname, '../public/icon.ico')
-    : (process.platform === 'darwin'
-        ? join(process.resourcesPath, 'icon.icns')
-        : join(process.resourcesPath, 'icon.ico'))
+  let iconName = 'icon.ico';
+  if (process.platform === 'linux') {
+    iconName = 'icon.png';
+  } else if (process.platform === 'darwin') {
+    iconName = 'icon.icns';
+  }
+
+  const isDev = !!process.env.VITE_DEV_SERVER_URL
+
+  const resolvedTrayIcon = isDev
+      ? join(__dirname, `../public/${iconName}`)
+      : join(process.resourcesPath, iconName);
+
+
   try {
     tray = new Tray(resolvedTrayIcon)
     tray.setToolTip('WeFlow')

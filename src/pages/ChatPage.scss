@@ -566,7 +566,8 @@
         flex: 1;
         background: var(--chat-pattern);
         background-color: var(--bg-secondary);
-        padding: 20px 24px;
+        padding: 20px 24px 112px;
+        padding-bottom: calc(112px + env(safe-area-inset-bottom));
 
         &::-webkit-scrollbar {
           width: 6px;
@@ -600,7 +601,8 @@
       }
 
       .message-wrapper {
-        margin-bottom: 16px;
+        box-sizing: border-box;
+        padding-bottom: 16px;
       }
 
       .message-bubble {
@@ -1748,7 +1750,8 @@
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
-  padding: 20px 24px;
+  padding: 20px 24px 112px;
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1775,6 +1778,10 @@
       background: rgba(0, 0, 0, 0.3);
     }
   }
+}
+
+.message-virtuoso {
+  width: 100%;
 }
 
 .loading-messages.loading-overlay {
@@ -1834,9 +1841,9 @@
 
 // 回到底部按钮
 .scroll-to-bottom {
-  position: sticky;
+  position: absolute;
   bottom: 20px;
-  align-self: center;
+  left: 50%;
   padding: 8px 16px;
   border-radius: 20px;
   background: var(--bg-secondary);
@@ -1851,13 +1858,13 @@
   font-size: 13px;
   z-index: 10;
   opacity: 0;
-  transform: translateY(20px);
+  transform: translate(-50%, 20px);
   pointer-events: none;
   transition: all 0.3s ease;
 
   &.show {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate(-50%, 0);
     pointer-events: auto;
   }
 
@@ -1894,6 +1901,8 @@
 .message-wrapper {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  padding-bottom: 16px;
   -webkit-app-region: no-drag;
 
   &.sent {
@@ -2058,6 +2067,10 @@
   min-height: 48px;
   border-radius: 8px;
   object-fit: contain;
+}
+
+.emoji-message-wrapper {
+  display: inline-block;
 }
 
 .emoji-loading {
@@ -3294,13 +3307,89 @@
 
 // 聊天记录消息 (合并转发)
 .chat-record-message {
-  background: var(--card-inner-bg) !important;
-  border: 1px solid var(--border-color) !important;
-  transition: opacity 0.2s ease;
+  width: 300px;
+  min-width: 240px;
+  max-width: 336px;
+  background: color-mix(in srgb, var(--bg-secondary) 97%, #f5f7fb);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   cursor: pointer;
+  padding: 0;
 
   &:hover {
-    opacity: 0.85;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    border-color: color-mix(in srgb, var(--primary) 28%, var(--border-color));
+  }
+
+  .chat-record-title {
+    padding: 13px 16px 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .chat-record-meta-line {
+    padding: 0 16px 10px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-record-list {
+    padding: 0 16px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 92px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .chat-record-item {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .source-name {
+    color: currentColor;
+    opacity: 0.92;
+    font-weight: 500;
+    margin-right: 4px;
+  }
+
+  .chat-record-more {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  .chat-record-desc {
+    padding: 0 16px 11px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .chat-record-footer {
+    padding: 8px 16px 10px;
+    font-size: 11px;
+    color: var(--text-tertiary);
   }
 }
 
@@ -3371,75 +3460,6 @@
 
   .file-meta {
     color: #999;
-  }
-}
-
-// 聊天记录消息 - 复用 link-message 基础样式
-.chat-record-message {
-  cursor: pointer;
-
-  .link-header {
-    padding-bottom: 4px;
-  }
-
-  .chat-record-preview {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .chat-record-meta-line {
-    font-size: 11px;
-    color: var(--text-tertiary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .chat-record-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-height: 70px;
-    overflow: hidden;
-  }
-
-  .chat-record-item {
-    font-size: 12px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .source-name {
-    color: var(--text-primary);
-    font-weight: 500;
-    margin-right: 4px;
-  }
-
-  .chat-record-more {
-    font-size: 12px;
-    color: var(--primary);
-  }
-
-  .chat-record-desc {
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-
-  .chat-record-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: var(--primary-gradient);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    flex-shrink: 0;
   }
 }
 
@@ -3539,23 +3559,18 @@
 .message-bubble.sent {
 
   .card-message,
-  .chat-record-message,
   .miniapp-message,
   .appmsg-rich-card {
     background: var(--sent-card-bg);
 
     .card-name,
     .miniapp-title,
-    .source-name,
     .link-title {
       color: white;
     }
 
     .card-label,
     .miniapp-label,
-    .chat-record-item,
-    .chat-record-meta-line,
-    .chat-record-desc,
     .link-desc,
     .appmsg-url-line {
       color: rgba(255, 255, 255, 0.8);
@@ -3563,12 +3578,8 @@
 
     .card-icon,
     .miniapp-icon,
-    .chat-record-icon {
+    .link-thumb-placeholder {
       color: white;
-    }
-
-    .chat-record-more {
-      color: rgba(255, 255, 255, 0.9);
     }
 
     .appmsg-meta-badge {
@@ -3651,11 +3662,11 @@
 // 批量转写按钮
 .batch-transcribe-btn {
   &:hover:not(:disabled) {
-    color: var(--primary-color);
+    color: var(--primary);
   }
 
   &.transcribing {
-    color: var(--primary-color);
+    color: var(--primary);
     cursor: pointer;
     opacity: 1 !important;
   }
@@ -3679,7 +3690,7 @@
     border-bottom: 1px solid var(--border-color);
 
     svg {
-      color: var(--primary-color);
+      color: var(--primary);
     }
 
     h3 {
@@ -3700,6 +3711,36 @@
       line-height: 1.6;
     }
 
+    .batch-task-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+
+      .batch-task-btn {
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        border-radius: 8px;
+        padding: 0.55rem 0.75rem;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+
+        &:hover {
+          border-color: color-mix(in srgb, var(--primary) 50%, var(--border-color));
+          color: var(--text-primary);
+        }
+
+        &.active {
+          border-color: var(--primary);
+          color: var(--primary);
+          background: color-mix(in srgb, var(--primary) 10%, var(--bg-primary));
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 25%, transparent);
+        }
+      }
+    }
+
     .batch-dates-list-wrap {
       margin-bottom: 1rem;
       background: var(--bg-tertiary);
@@ -3717,7 +3758,7 @@
         .batch-dates-btn {
           padding: 0.35rem 0.75rem;
           font-size: 12px;
-          color: var(--primary-color);
+          color: var(--primary);
           background: transparent;
           border: 1px solid var(--border-color);
           border-radius: 6px;
@@ -3726,7 +3767,7 @@
 
           &:hover {
             background: var(--bg-hover);
-            border-color: var(--primary-color);
+            border-color: var(--primary);
           }
         }
       }
@@ -3759,9 +3800,14 @@
           }
 
           input[type="checkbox"] {
-            accent-color: var(--primary-color);
+            accent-color: var(--primary);
             cursor: pointer;
             flex-shrink: 0;
+
+            &:focus-visible {
+              outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+              outline-offset: 1px;
+            }
           }
 
           .batch-date-label {
@@ -3804,7 +3850,7 @@
         .value {
           font-size: 14px;
           font-weight: 600;
-          color: var(--primary-color);
+          color: var(--primary);
         }
 
         .batch-concurrency-field {
@@ -3930,7 +3976,7 @@
 
       &.btn-primary,
       &.batch-transcribe-start-btn {
-        background: var(--primary-color);
+        background: var(--primary);
         color: #000;
 
         &:hover {
@@ -4174,43 +4220,6 @@
     margin-top: 4px;
     padding-top: 4px;
     border-top: 1px solid var(--border-color);
-  }
-}
-
-// 聊天记录消息外观
-.chat-record-message {
-  background: var(--card-inner-bg) !important;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-
-  &:hover {
-    background: var(--bg-hover) !important;
-  }
-
-  .chat-record-list {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    line-height: 1.6;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-color);
-
-    .chat-record-item {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-
-      .source-name {
-        color: var(--text-secondary);
-      }
-    }
-  }
-
-  .chat-record-more {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-top: 4px;
   }
 }
 
@@ -4800,6 +4809,18 @@
   color: var(--text-tertiary);
   background: var(--bg-secondary);
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .search-phase-hint {
+    color: var(--primary);
+    font-weight: 400;
+
+    &.done {
+      color: var(--text-tertiary);
+    }
+  }
 }
 
 // 全局消息搜索结果面板

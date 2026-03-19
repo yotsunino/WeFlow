@@ -49,20 +49,41 @@ jobs:
         run: |
           npx electron-builder --mac dmg --arm64 --publish always
 
-      - name: Update Release Notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  release-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out git repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Sync version with tag
         shell: bash
         run: |
-          cat <<EOF > release_notes.md
-          ## 更新日志
-          修复了一些已知问题
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Syncing package.json version to $VERSION"
+          npm version $VERSION --no-git-tag-version --allow-same-version
 
-          ## 查看更多日志/获取最新动态
-          [点击加入 Telegram 频道](https://t.me/weflow_cc)
-          EOF
+      - name: Build Frontend & Type Check
+        run: |
+          npx tsc
+          npx vite build
 
-          gh release edit "$GITHUB_REF_NAME" --notes-file release_notes.md
+      - name: Package and Publish Linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder --linux --publish always
 
   release:
     runs-on: windows-latest
@@ -100,17 +121,66 @@ jobs:
         run: |
           npx electron-builder --publish always
 
-      - name: Update Release Notes
+  update-release-notes:
+    runs-on: ubuntu-latest
+    needs:
+      - release-mac-arm64
+      - release-linux
+      - release
+
+    steps:
+      - name: Generate release notes with platform download links
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          cat <<EOF > release_notes.md
+          set -euo pipefail
+
+          TAG="$GITHUB_REF_NAME"
+          REPO="$GITHUB_REPOSITORY"
+          RELEASE_PAGE="https://github.com/$REPO/releases/tag/$TAG"
+
+          ASSETS_JSON="$(gh release view "$TAG" --repo "$REPO" --json assets)"
+
+          pick_asset() {
+            local pattern="$1"
+            echo "$ASSETS_JSON" | jq -r --arg p "$pattern" '[.assets[].name | select(test($p))][0] // ""'
+          }
+
+          WINDOWS_ASSET="$(pick_asset "\\.exe$")"
+          MAC_ASSET="$(pick_asset "\\.dmg$")"
+          LINUX_DEB_ASSET="$(pick_asset "\\.deb$")"
+          LINUX_TAR_ASSET="$(pick_asset "\\.tar\\.gz$")"
+          LINUX_PACMAN_ASSET="$(pick_asset "\\.pacman$")"
+
+          build_link() {
+            local name="$1"
+            if [ -n "$name" ]; then
+              echo "https://github.com/$REPO/releases/download/$TAG/$name"
+            fi
+          }
+
+          WINDOWS_URL="$(build_link "$WINDOWS_ASSET")"
+          MAC_URL="$(build_link "$MAC_ASSET")"
+          LINUX_DEB_URL="$(build_link "$LINUX_DEB_ASSET")"
+          LINUX_TAR_URL="$(build_link "$LINUX_TAR_ASSET")"
+          LINUX_PACMAN_URL="$(build_link "$LINUX_PACMAN_ASSET")"
+
+          cat > release_notes.md <<EOF
           ## 更新日志
           修复了一些已知问题
 
           ## 查看更多日志/获取最新动态
           [点击加入 Telegram 频道](https://t.me/weflow_cc)
+
+          ## 下载
+          - Windows （Win10+）: ${WINDOWS_URL:-$RELEASE_PAGE}
+          - macOS（M系列芯片）: ${MAC_URL:-$RELEASE_PAGE}
+          - Linux (.deb): ${LINUX_DEB_URL:-$RELEASE_PAGE}
+          - Linux (.tar.gz): ${LINUX_TAR_URL:-$RELEASE_PAGE}
+          - Linux (pacman): ${LINUX_PACMAN_URL:-$RELEASE_PAGE}
+
+          > 如果某个平台链接暂时未生成，可进入完整发布页查看全部资源：$RELEASE_PAGE
           EOF
-          
-          gh release edit "$GITHUB_REF_NAME" --notes-file release_notes.md
+
+          gh release edit "$TAG" --repo "$REPO" --notes-file release_notes.md

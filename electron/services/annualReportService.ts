@@ -278,16 +278,16 @@ class AnnualReportService {
       return cached || null
     }
 
-    const result = await wcdbService.execQuery('message', dbPath, `PRAGMA table_info(${this.quoteSqlIdentifier(tableName)})`)
-    if (!result.success || !Array.isArray(result.rows) || result.rows.length === 0) {
+    const result = await wcdbService.getMessageTableColumns(dbPath, tableName)
+    if (!result.success || !Array.isArray(result.columns) || result.columns.length === 0) {
       this.availableYearsColumnCache.set(cacheKey, '')
       return null
     }
 
     const candidates = ['create_time', 'createtime', 'msg_create_time', 'msg_time', 'msgtime', 'time']
     const columns = new Set<string>()
-    for (const row of result.rows as Record<string, any>[]) {
-      const name = String(row.name || row.column_name || row.columnName || '').trim().toLowerCase()
+    for (const columnName of result.columns) {
+      const name = String(columnName || '').trim().toLowerCase()
       if (name) columns.add(name)
     }
 
@@ -309,10 +309,11 @@ class AnnualReportService {
     const tried = new Set<string>()
 
     const queryByColumn = async (column: string): Promise<{ first: number; last: number } | null> => {
-      const sql = `SELECT MIN(${this.quoteSqlIdentifier(column)}) AS first_ts, MAX(${this.quoteSqlIdentifier(column)}) AS last_ts FROM ${this.quoteSqlIdentifier(tableName)}`
-      const result = await wcdbService.execQuery('message', dbPath, sql)
-      if (!result.success || !Array.isArray(result.rows) || result.rows.length === 0) return null
-      const row = result.rows[0] as Record<string, any>
+      const result = await wcdbService.getMessageTableTimeRange(dbPath, tableName)
+      if (!result.success || !result.data) return null
+      const row = result.data as Record<string, any>
+      const actualColumn = String(row.column || '').trim().toLowerCase()
+      if (column && actualColumn && column.toLowerCase() !== actualColumn) return null
       const first = this.toUnixTimestamp(row.first_ts ?? row.firstTs ?? row.min_ts ?? row.minTs)
       const last = this.toUnixTimestamp(row.last_ts ?? row.lastTs ?? row.max_ts ?? row.maxTs)
       return { first, last }

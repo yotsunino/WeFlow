@@ -46,6 +46,7 @@ export interface Message {
   messageKey: string
   localId: number
   serverId: number
+  serverIdRaw?: string
   localType: number
   createTime: number
   sortSeq: number
@@ -128,11 +129,19 @@ export interface ChatRecordItem {
   dataurl?: string          // 数据URL
   datathumburl?: string     // 缩略图URL
   datacdnurl?: string       // CDN URL
+  cdndatakey?: string       // CDN 数据 key
+  cdnthumbkey?: string      // CDN 缩略图 key
   aeskey?: string           // AES密钥
   md5?: string              // MD5
+  fullmd5?: string          // 原图 MD5
+  thumbfullmd5?: string     // 缩略图 MD5
+  srcMsgLocalid?: number    // 源消息 LocalId
   imgheight?: number        // 图片高度
   imgwidth?: number         // 图片宽度
   duration?: number         // 时长（毫秒）
+  chatRecordTitle?: string  // 嵌套聊天记录标题
+  chatRecordDesc?: string   // 嵌套聊天记录描述
+  chatRecordList?: ChatRecordItem[] // 嵌套聊天记录列表
 }
 
 

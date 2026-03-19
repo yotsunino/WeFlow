@@ -81,13 +81,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setMessages: (messages) => set({ messages }),
 
   appendMessages: (newMessages, prepend = false) => set((state) => {
-    const getMsgKey = (m: Message) => {
-      if (m.messageKey) return m.messageKey
+    const buildPrimaryKey = (m: Message): string => {
+      if (m.messageKey) return String(m.messageKey)
       return `fallback:${m.serverId || 0}:${m.createTime}:${m.sortSeq || 0}:${m.localId || 0}:${m.senderUsername || ''}:${m.localType || 0}`
     }
+    const buildAliasKeys = (m: Message): string[] => {
+      const keys = [buildPrimaryKey(m)]
+      const localId = Math.max(0, Number(m.localId || 0))
+      const serverId = Math.max(0, Number(m.serverId || 0))
+      const createTime = Math.max(0, Number(m.createTime || 0))
+      const localType = Math.floor(Number(m.localType || 0))
+      const sender = String(m.senderUsername || '')
+      const isSend = Number(m.isSend ?? -1)
+
+      if (localId > 0) {
+        keys.push(`lid:${localId}`)
+      }
+      if (serverId > 0) {
+        keys.push(`sid:${serverId}`)
+      }
+      if (localType === 3) {
+        const imageIdentity = String(m.imageMd5 || m.imageDatName || '').trim()
+        if (imageIdentity) {
+          keys.push(`img:${createTime}:${sender}:${isSend}:${imageIdentity}`)
+        }
+      }
+      return keys
+    }
+
     const currentMessages = state.messages || []
-    const existingKeys = new Set(currentMessages.map(getMsgKey))
-    const filtered = newMessages.filter(m => !existingKeys.has(getMsgKey(m)))
+    const existingAliases = new Set<string>()
+    currentMessages.forEach((msg) => {
+      buildAliasKeys(msg).forEach((key) => existingAliases.add(key))
+    })
+
+    const filtered: Message[] = []
+    newMessages.forEach((msg) => {
+      const aliasKeys = buildAliasKeys(msg)
+      const exists = aliasKeys.some((key) => existingAliases.has(key))
+      if (exists) return
+      filtered.push(msg)
+      aliasKeys.forEach((key) => existingAliases.add(key))
+    })
 
     if (filtered.length === 0) return state
 
