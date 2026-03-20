@@ -4,6 +4,7 @@ import { existsSync, readdirSync, statSync, readFileSync } from 'fs'
 import { execFile, exec } from 'child_process'
 import { promisify } from 'util'
 import { createRequire } from 'module';
+import { spawn } from 'child_process'
 const require = createRequire(import.meta.url);
 
 const execFileAsync = promisify(execFile)
@@ -51,12 +52,37 @@ export class KeyServiceLinux {
       await new Promise(r => setTimeout(r, 1000))
 
       onStatus?.('正在尝试拉起微信...', 0)
-      const startCmds = [
-        'nohup wechat >/dev/null 2>&1 &',
-        'nohup wechat-bin >/dev/null 2>&1 &',
-        'nohup xwechat >/dev/null 2>&1 &'
+
+      const cleanEnv = { ...process.env };
+      delete cleanEnv.ELECTRON_RUN_AS_NODE;
+      delete cleanEnv.ELECTRON_NO_ATTACH_CONSOLE;
+      delete cleanEnv.APPDIR;
+      delete cleanEnv.APPIMAGE;
+
+      const wechatBins = [
+        'wechat',
+        'wechat-bin',
+        'xwechat',
+        '/opt/wechat/wechat',
+        '/usr/bin/wechat',
+        '/opt/apps/com.tencent.wechat/files/wechat'
       ]
-      for (const cmd of startCmds) execAsync(cmd).catch(() => {})
+
+      for (const binName of wechatBins) {
+        try {
+          const child = spawn(binName, [], {
+            detached: true,
+            stdio: 'ignore',
+            env: cleanEnv
+          });
+
+          child.on('error', () => {});
+
+          child.unref();
+        } catch (e) {
+
+        }
+      }
 
       onStatus?.('等待微信进程出现...', 0)
       let pid = 0
