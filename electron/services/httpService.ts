@@ -1226,7 +1226,7 @@ class HttpService {
    * 映射 Type 49 子类型
    */
   private mapType49(msg: Message): number {
-    const xmlType = msg.xmlType
+    const xmlType = this.resolveType49Subtype(msg)
 
     switch (xmlType) {
       case '5': // 链接
@@ -1250,10 +1250,97 @@ class HttpService {
     }
   }
 
+  private extractType49Subtype(rawContent: string): string {
+    const content = String(rawContent || '')
+    if (!content) return ''
+
+    const appmsgMatch = /<appmsg[\s\S]*?>([\s\S]*?)<\/appmsg>/i.exec(content)
+    if (appmsgMatch) {
+      const appmsgInner = appmsgMatch[1]
+        .replace(/<refermsg[\s\S]*?<\/refermsg>/gi, '')
+        .replace(/<patMsg[\s\S]*?<\/patMsg>/gi, '')
+      const typeMatch = /<type>([\s\S]*?)<\/type>/i.exec(appmsgInner)
+      if (typeMatch) {
+        return typeMatch[1].replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '').trim()
+      }
+    }
+
+    const fallbackMatch = /<type>([\s\S]*?)<\/type>/i.exec(content)
+    if (fallbackMatch) {
+      return fallbackMatch[1].replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '').trim()
+    }
+
+    return ''
+  }
+
+  private resolveType49Subtype(msg: Message): string {
+    const xmlType = String(msg.xmlType || '').trim()
+    if (xmlType) return xmlType
+
+    const extractedType = this.extractType49Subtype(msg.rawContent)
+    if (extractedType) return extractedType
+
+    switch (msg.appMsgKind) {
+      case 'official-link':
+      case 'link':
+        return '5'
+      case 'file':
+        return '6'
+      case 'chat-record':
+        return '19'
+      case 'miniapp':
+        return '33'
+      case 'quote':
+        return '57'
+      case 'transfer':
+        return '2000'
+      case 'red-packet':
+        return '2001'
+      case 'music':
+        return '3'
+      default:
+        if (msg.linkUrl) return '5'
+        if (msg.fileName) return '6'
+        return ''
+    }
+  }
+
+  private getType49Content(msg: Message): string {
+    const subtype = this.resolveType49Subtype(msg)
+    const title = msg.linkTitle || msg.fileName || ''
+
+    switch (subtype) {
+      case '5':
+      case '49':
+        return title ? `[链接] ${title}` : '[链接]'
+      case '6':
+        return title ? `[文件] ${title}` : '[文件]'
+      case '19':
+        return title ? `[聊天记录] ${title}` : '[聊天记录]'
+      case '33':
+      case '36':
+        return title ? `[小程序] ${title}` : '[小程序]'
+      case '57':
+        return msg.parsedContent || title || '[引用消息]'
+      case '2000':
+        return title ? `[转账] ${title}` : '[转账]'
+      case '2001':
+        return title ? `[红包] ${title}` : '[红包]'
+      case '3':
+        return title ? `[音乐] ${title}` : '[音乐]'
+      default:
+        return msg.parsedContent || title || '[消息]'
+    }
+  }
+
   /**
    * 获取消息内容
    */
   private getMessageContent(msg: Message): string | null {
+    if (msg.localType === 49) {
+      return this.getType49Content(msg)
+    }
+
     // 优先使用已解析的内容
     if (msg.parsedContent) {
       return msg.parsedContent
@@ -1276,7 +1363,7 @@ class HttpService {
       case 48:
         return '[位置]'
       case 49:
-        return msg.linkTitle || msg.fileName || '[消息]'
+        return this.getType49Content(msg)
       default:
         return msg.rawContent || null
     }
