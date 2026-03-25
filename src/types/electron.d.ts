@@ -496,6 +496,28 @@ export interface ElectronAPI {
       }
       error?: string
     }>
+    getGroupMemberAnalytics: (chatroomId: string, memberUsername: string, startTime?: number, endTime?: number) => Promise<{
+      success: boolean
+      data?: {
+        statistics: {
+          totalMessages: number
+          textMessages: number
+          imageMessages: number
+          voiceMessages: number
+          videoMessages: number
+          emojiMessages: number
+          otherMessages: number
+          sentMessages: number
+          receivedMessages: number
+          firstMessageTime: number | null
+          lastMessageTime: number | null
+          activeDays: number
+          messageTypeCounts: Record<number, number>
+        }
+        timeDistribution: Record<number, number>
+      }
+      error?: string
+    }>
     getGroupMemberMessages: (
       chatroomId: string,
       memberUsername: string,
