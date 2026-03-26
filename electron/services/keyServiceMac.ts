@@ -385,7 +385,7 @@ export class KeyServiceMac {
     // 通过 try/on error 回传详细错误，避免只看到 "Command failed"
     const scriptLines = [
       `set helperPath to ${JSON.stringify(helperPath)}`,
-      `set cmd to quoted form of helperPath & " ${pid} ${waitMs}"`,
+      `set cmd to quoted form of helperPath & " ${pid} ${waitMs} 2>&1"`,
       `set timeoutSec to ${timeoutSec}`,
       'try',
       'with timeout of timeoutSec seconds',
