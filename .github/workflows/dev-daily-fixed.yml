@@ -293,6 +293,11 @@ jobs:
           - Linux (.tar.gz): ${LINUX_TAR_URL:-$RELEASE_PAGE}
           - Linux (.AppImage): ${LINUX_APPIMAGE_URL:-$RELEASE_PAGE}
 
+          ## macOS 安装提示
+          - 如果被系统提升已损坏，你需要在终端执行以下命令去除隔离标记：
+          - \`xattr -dr com.apple.quarantine "/Applications/WeFlow.app"\`
+          - 执行后重新打开 WeFlow。
+
           ## 说明
           - 该发布页的同名资源会被后续构建覆盖，请勿将其视作长期归档版本。
           - 如某个平台资源暂未生成，请进入发布页查看最新状态：$RELEASE_PAGE

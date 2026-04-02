@@ -263,10 +263,10 @@ jobs:
           - Linux (.tar.gz): ${LINUX_TAR_URL:-$RELEASE_PAGE}
           - Linux (.AppImage): ${LINUX_APPIMAGE_URL:-$RELEASE_PAGE}
 
-          ## 安装提示
-          - macOS 若提示“无法验证开发者”，请在「系统设置 -> 隐私与安全性」中允许打开。
-          - 若仍被拦截，可执行：
+          ## macOS 安装提示
+          - 如果被系统提升已损坏，你需要在终端执行以下命令去除隔离标记：
           - \`xattr -dr com.apple.quarantine "/Applications/WeFlow.app"\`
+          - 执行后重新打开 WeFlow。
 
           > 如某个平台链接暂未生成，请前往发布页查看最新资源：$RELEASE_PAGE
           EOF
