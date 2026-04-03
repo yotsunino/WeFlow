@@ -3310,15 +3310,29 @@ class ExportService {
     const subType = this.extractAppMessageType(normalized)
     if (subType && subType !== '5' && subType !== '49') return null
 
-    const url = this.normalizeHtmlLinkUrl(this.extractXmlValue(normalized, 'url'))
+    const url = [
+      this.extractXmlValue(normalized, 'url'),
+      this.extractXmlValue(normalized, 'shareurlopen'),
+      this.extractXmlValue(normalized, 'shareurloriginal'),
+      this.extractXmlValue(normalized, 'shareurl'),
+      this.extractXmlValue(normalized, 'shorturl'),
+      this.extractXmlValue(normalized, 'dataurl'),
+      this.extractXmlValue(normalized, 'lowurl'),
+      this.extractXmlValue(normalized, 'streamvideoweburl'),
+      this.extractXmlValue(normalized, 'weburl')
+    ]
+      .map(candidate => this.normalizeHtmlLinkUrl(candidate))
+      .find(Boolean) || ''
     if (!url) return null
 
-    const title = this.extractXmlValue(normalized, 'title') || this.extractXmlValue(normalized, 'des') || url
+    const title = this.stripSenderPrefix(
+      this.extractXmlValue(normalized, 'title') || this.extractXmlValue(normalized, 'des') || url
+    ) || url
     return { title, url }
   }
 
   private normalizeHtmlLinkUrl(rawUrl: string): string {
-    const value = (rawUrl || '').trim()
+    const value = (rawUrl || '').trim().replace(/&amp;/gi, '&')
     if (!value) return ''
 
     const parseHttpUrl = (candidate: string): string => {
@@ -3347,6 +3361,46 @@ class ExportService {
     }
 
     return ''
+  }
+
+  private getLinkCardDisplayTitle(linkCard: { title: string; url: string }): string {
+    const normalizedTitle = this.stripSenderPrefix(String(linkCard.title || '').trim())
+    return normalizedTitle || linkCard.url || '链接'
+  }
+
+  private formatLinkCardExportText(
+    content: string,
+    localType: number,
+    style: 'markdown' | 'append-url'
+  ): string | null {
+    const linkCard = this.extractHtmlLinkCard(content, localType)
+    if (!linkCard?.url) return null
+
+    const title = this.getLinkCardDisplayTitle(linkCard)
+    if (style === 'markdown') {
+      return `[${title}](${linkCard.url})`
+    }
+
+    const prefix = title && title !== linkCard.url ? `[链接] ${title}` : '[链接]'
+    return `${prefix}\n${linkCard.url}`
+  }
+
+  private applyExcelLinkCardCell(cell: ExcelJS.Cell, content: string, localType: number): boolean {
+    const linkCard = this.extractHtmlLinkCard(content, localType)
+    if (!linkCard?.url) return false
+
+    const title = this.getLinkCardDisplayTitle(linkCard)
+    cell.value = {
+      text: title,
+      hyperlink: linkCard.url,
+      tooltip: linkCard.url
+    } as any
+    cell.font = {
+      ...(cell.font || {}),
+      color: { argb: 'FF0563C1' },
+      underline: true
+    }
+    return true
   }
 
   /**
@@ -5066,6 +5120,11 @@ class ExportService {
           }
         }
 
+        const markdownLinkContent = this.formatLinkCardExportText(msg.content, msg.localType, 'markdown')
+        if (markdownLinkContent) {
+          content = markdownLinkContent
+        }
+
         const message: ChatLabMessage = {
           sender: msg.senderUsername,
           accountName: senderProfile.displayName || memberInfo.accountName,
@@ -5556,6 +5615,13 @@ class ExportService {
         })
         if (quotedReplyDisplay) {
           content = this.buildQuotedReplyText(quotedReplyDisplay)
+        }
+
+        const appendedLinkContent = quotedReplyDisplay
+          ? null
+          : this.formatLinkCardExportText(msg.content, msg.localType, 'append-url')
+        if (appendedLinkContent) {
+          content = appendedLinkContent
         }
 
         // 获取发送者信息用于名称显示
@@ -6484,16 +6550,14 @@ class ExportService {
           enrichedContentValue = this.buildQuotedReplyText(quotedReplyDisplay)
         }
 
-        // 调试日志
-        if (msg.localType === 3 || msg.localType === 47) {
-        }
+        const contentCellIndex = useCompactColumns ? 5 : 9
+        const contentCell = worksheet.getCell(currentRow, contentCellIndex)
 
         worksheet.getCell(currentRow, 1).value = i + 1
         worksheet.getCell(currentRow, 2).value = this.formatTimestamp(msg.createTime)
         if (useCompactColumns) {
           worksheet.getCell(currentRow, 3).value = senderRole
           worksheet.getCell(currentRow, 4).value = this.getMessageTypeName(msg.localType)
-          worksheet.getCell(currentRow, 5).value = enrichedContentValue
         } else {
           worksheet.getCell(currentRow, 3).value = senderNickname
           worksheet.getCell(currentRow, 4).value = senderWxid
@@ -6501,7 +6565,10 @@ class ExportService {
           worksheet.getCell(currentRow, 6).value = senderGroupNickname
           worksheet.getCell(currentRow, 7).value = senderRole
           worksheet.getCell(currentRow, 8).value = this.getMessageTypeName(msg.localType)
-          worksheet.getCell(currentRow, 9).value = enrichedContentValue
+        }
+        contentCell.value = enrichedContentValue
+        if (!quotedReplyDisplay) {
+          this.applyExcelLinkCardCell(contentCell, msg.content, msg.localType)
         }
 
         currentRow++
@@ -6747,7 +6814,7 @@ class ExportService {
           enrichedContentValue = this.buildQuotedReplyText(quotedReplyDisplay)
         }
 
-        appendRow(useCompactColumns
+        const row = worksheet.addRow(useCompactColumns
           ? [
             i + 1,
             this.formatTimestamp(msg.createTime),
@@ -6766,6 +6833,10 @@ class ExportService {
             this.getMessageTypeName(msg.localType),
             enrichedContentValue
           ])
+        if (!quotedReplyDisplay) {
+          this.applyExcelLinkCardCell(row.getCell(useCompactColumns ? 5 : 9), msg.content, msg.localType)
+        }
+        row.commit()
 
         if ((i + 1) % 200 === 0) {
           onProgress?.({
@@ -7117,6 +7188,13 @@ class ExportService {
         })
         if (quotedReplyDisplay) {
           enrichedContentValue = this.buildQuotedReplyText(quotedReplyDisplay)
+        }
+
+        const appendedLinkContent = quotedReplyDisplay
+          ? null
+          : this.formatLinkCardExportText(msg.content, msg.localType, 'append-url')
+        if (appendedLinkContent) {
+          enrichedContentValue = appendedLinkContent
         }
 
         let senderRole: string
