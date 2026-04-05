@@ -15,7 +15,10 @@
 
 import https from 'https'
 import http from 'http'
+import fs from 'fs'
+import path from 'path'
 import { URL } from 'url'
+import { app } from 'electron'
 import { ConfigService } from './config'
 import { chatService, ChatSession, Message } from './chatService'
 import { showNotification } from '../windows/notificationWindow'
@@ -25,32 +28,49 @@ import { showNotification } from '../windows/notificationWindow'
 /** DB 变更防抖延迟（毫秒） */
 const DB_CHANGE_DEBOUNCE_MS = 500
 
-/** 沉默扫描间隔（毫秒），4 小时 */
-const SILENCE_SCAN_INTERVAL_MS = 4 * 60 * 60 * 1000
-
 /** 首次沉默扫描延迟（毫秒），避免启动期间抢占资源 */
 const SILENCE_SCAN_INITIAL_DELAY_MS = 3 * 60 * 1000
 
 /** 单次 API 请求超时（毫秒） */
 const API_TIMEOUT_MS = 45_000
 
-/** 最大上下文消息数（授权发送真实上下文时） */
-const MAX_CONTEXT_MESSAGES = 40
-
 /** 沉默天数阈值默认值 */
 const DEFAULT_SILENCE_DAYS = 3
-
-/**
- * 同一会话活跃分析的冷却时间（毫秒），2 小时。
- * 防止 DB 频繁变更时对同一会话反复调用 API。
- */
-const ACTIVITY_COOLDOWN_MS = 2 * 60 * 60 * 1000
 
 // ─── 类型 ────────────────────────────────────────────────────────────────────
 
 interface TodayTriggerRecord {
   /** 该会话今日触发的时间戳列表（毫秒） */
   timestamps: number[]
+}
+
+// ─── 桌面日志 ─────────────────────────────────────────────────────────────────
+
+/**
+ * 将日志同时输出到 console 和桌面上的 weflow-insight.log 文件。
+ * 文件名带当天日期，每天自动换一个新文件，旧文件保留。
+ */
+function insightLog(level: 'INFO' | 'WARN' | 'ERROR', message: string): void {
+  const now = new Date()
+  const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-')
+  const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false })
+  const line = `[${dateStr} ${timeStr}] [${level}] ${message}\n`
+
+  // 同步到 console
+  if (level === 'ERROR' || level === 'WARN') {
+    console.warn(`[InsightService] ${message}`)
+  } else {
+    console.log(`[InsightService] ${message}`)
+  }
+
+  // 写入桌面日志文件
+  try {
+    const desktopPath = app.getPath('desktop')
+    const logFile = path.join(desktopPath, `weflow-insight-${dateStr}.log`)
+    fs.appendFileSync(logFile, line, 'utf-8')
+  } catch {
+    // 写文件失败静默处理，不影响主流程
+  }
 }
 
 // ─── 工具函数 ─────────────────────────────────────────────────────────────────
@@ -200,7 +220,7 @@ class InsightService {
   start(): void {
     if (this.started) return
     this.started = true
-    console.log('[InsightService] 已启动')
+    insightLog('INFO', '已启动')
     this.scheduleSilenceScan()
   }
 
@@ -218,7 +238,7 @@ class InsightService {
       clearTimeout(this.silenceInitialDelayTimer)
       this.silenceInitialDelayTimer = null
     }
-    console.log('[InsightService] 已停止')
+    insightLog('INFO', '已停止')
   }
 
   /**
@@ -270,7 +290,7 @@ class InsightService {
    * 返回触发结果描述，供设置页展示。
    */
   async triggerTest(): Promise<{ success: boolean; message: string }> {
-    console.log('[InsightService] 手动触发测试见解...')
+    insightLog('INFO', '手动触发测试见解...')
     const apiBaseUrl = this.config.get('aiInsightApiBaseUrl') as string
     const apiKey = this.config.get('aiInsightApiKey') as string
     if (!apiBaseUrl || !apiKey) {
@@ -285,17 +305,17 @@ class InsightService {
       if (!sessionsResult.success || !sessionsResult.sessions || sessionsResult.sessions.length === 0) {
         return { success: false, message: '未找到任何会话，请确认数据库已正确连接' }
       }
-      // 找第一个私聊
+      // 找第一个允许的私聊
       const session = (sessionsResult.sessions as ChatSession[]).find((s) => {
         const id = s.username?.trim() || ''
-        return id && !id.endsWith('@chatroom') && !id.toLowerCase().includes('placeholder')
+        return id && !id.endsWith('@chatroom') && !id.toLowerCase().includes('placeholder') && this.isSessionAllowed(id)
       })
       if (!session) {
-        return { success: false, message: '未找到任何私聊会话' }
+        return { success: false, message: '未找到任何私聊会话（若已启用白名单，请检查是否有勾选的私聊）' }
       }
       const sessionId = session.username?.trim() || ''
       const displayName = session.displayName || sessionId
-      console.log(`[InsightService] 测试目标会话：${displayName} (${sessionId})`)
+      insightLog('INFO', `测试目标会话：${displayName} (${sessionId})`)
       await this.generateInsightForSession({
         sessionId,
         displayName,
@@ -373,57 +393,62 @@ class InsightService {
   // ── 沉默联系人扫描 ──────────────────────────────────────────────────────────
 
   private scheduleSilenceScan(): void {
-    // 延迟 3 分钟后首次扫描，之后每 4 小时一次
     this.silenceInitialDelayTimer = setTimeout(() => {
       void this.runSilenceScan()
-      this.silenceScanTimer = setInterval(() => {
-        void this.runSilenceScan()
-      }, SILENCE_SCAN_INTERVAL_MS)
+      // 每次扫描完毕后重新读取间隔配置，允许用户动态调整不需要重启
+      const scheduleNext = () => {
+        const intervalHours = (this.config.get('aiInsightScanIntervalHours') as number) || 4
+        const intervalMs = Math.max(0.1, intervalHours) * 60 * 60 * 1000
+        insightLog('INFO', `下次沉默扫描将在 ${intervalHours} 小时后执行`)
+        this.silenceScanTimer = setTimeout(() => {
+          void this.runSilenceScan().then(scheduleNext)
+        }, intervalMs)
+      }
+      scheduleNext()
     }, SILENCE_SCAN_INITIAL_DELAY_MS)
   }
 
   private async runSilenceScan(): Promise<void> {
     if (!this.isEnabled()) {
-      console.log('[InsightService] 沉默扫描：AI 见解未启用，跳过')
+      insightLog('INFO', '沉默扫描：AI 见解未启用，跳过')
       return
     }
     if (this.processing) {
-      console.log('[InsightService] 沉默扫描：正在处理中，跳过本次')
+      insightLog('INFO', '沉默扫描：正在处理中，跳过本次')
       return
     }
 
     this.processing = true
-    console.log('[InsightService] 开始沉默联系人扫描...')
+    insightLog('INFO', '开始沉默联系人扫描...')
     try {
       const silenceDays = (this.config.get('aiInsightSilenceDays') as number) || DEFAULT_SILENCE_DAYS
       const thresholdMs = silenceDays * 24 * 60 * 60 * 1000
       const now = Date.now()
 
-      console.log(`[InsightService] 沉默阈值：${silenceDays} 天`)
+      insightLog('INFO', `沉默阈值：${silenceDays} 天`)
 
       const connectResult = await chatService.connect()
       if (!connectResult.success) {
-        console.log('[InsightService] 数据库连接失败，跳过沉默扫描')
+        insightLog('WARN', '数据库连接失败，跳过沉默扫描')
         return
       }
 
       const sessionsResult = await chatService.getSessions()
       if (!sessionsResult.success || !sessionsResult.sessions) {
-        console.log('[InsightService] 获取会话列表失败')
+        insightLog('WARN', '获取会话列表失败')
         return
       }
 
       const sessions: ChatSession[] = sessionsResult.sessions
-      console.log(`[InsightService] 共 ${sessions.length} 个会话，开始过滤...`)
+      insightLog('INFO', `共 ${sessions.length} 个会话，开始过滤...`)
 
       let silentCount = 0
       for (const session of sessions) {
         const sessionId = session.username?.trim() || ''
-        if (!sessionId || sessionId.endsWith('@chatroom')) continue // 跳过群聊
+        if (!sessionId || sessionId.endsWith('@chatroom')) continue
         if (sessionId.toLowerCase().includes('placeholder')) continue
-        if (!this.isSessionAllowed(sessionId)) continue // 白名单过滤
+        if (!this.isSessionAllowed(sessionId)) continue
 
-        // lastTimestamp 单位是秒，需要转换为毫秒
         const lastTimestamp = (session.lastTimestamp || 0) * 1000
         if (!lastTimestamp || lastTimestamp <= 0) continue
 
@@ -432,9 +457,8 @@ class InsightService {
 
         silentCount++
         const silentDays = Math.floor(silentMs / (24 * 60 * 60 * 1000))
-        console.log(`[InsightService] 发现沉默联系人：${session.displayName || sessionId}，已沉默 ${silentDays} 天`)
+        insightLog('INFO', `发现沉默联系人：${session.displayName || sessionId}，已沉默 ${silentDays} 天`)
 
-        // 沉默时间满足阈值，触发见解
         await this.generateInsightForSession({
           sessionId,
           displayName: session.displayName || session.username,
@@ -442,9 +466,9 @@ class InsightService {
           silentDays
         })
       }
-      console.log(`[InsightService] 沉默扫描完成，共发现 ${silentCount} 个沉默联系人`)
+      insightLog('INFO', `沉默扫描完成，共发现 ${silentCount} 个沉默联系人`)
     } catch (e) {
-      console.warn('[InsightService] 沉默扫描出错:', e)
+      insightLog('ERROR', `沉默扫描出错: ${(e as Error).message}`)
     } finally {
       this.processing = false
     }
@@ -464,30 +488,33 @@ class InsightService {
     if (this.processing) return
 
     this.processing = true
-    console.log('[InsightService] DB 变更防抖触发，开始活跃分析...')
+    insightLog('INFO', 'DB 变更防抖触发，开始活跃分析...')
     try {
       const connectResult = await chatService.connect()
       if (!connectResult.success) {
-        console.log('[InsightService] 数据库连接失败，跳过活跃分析')
+        insightLog('WARN', '数据库连接失败，跳过活跃分析')
         return
       }
 
       const sessionsResult = await chatService.getSessions()
       if (!sessionsResult.success || !sessionsResult.sessions) {
-        console.log('[InsightService] 获取会话列表失败')
+        insightLog('WARN', '获取会话列表失败')
         return
       }
 
       const sessions: ChatSession[] = sessionsResult.sessions
       const now = Date.now()
 
-      // 筛选私聊会话
+      // 从 config 读取冷却分钟数（0 = 无冷却）
+      const cooldownMinutes = (this.config.get('aiInsightCooldownMinutes') as number) ?? 120
+      const cooldownMs = cooldownMinutes * 60 * 1000
+
       const privateSessions = sessions.filter((s) => {
         const id = s.username?.trim() || ''
         return id && !id.endsWith('@chatroom') && !id.toLowerCase().includes('placeholder') && this.isSessionAllowed(id)
       })
 
-      console.log(`[InsightService] 筛选到 ${privateSessions.length} 个私聊会话（已过白名单过滤）`)
+      insightLog('INFO', `筛选到 ${privateSessions.length} 个私聊会话（白名单过滤后），冷却期 ${cooldownMinutes} 分钟`)
 
       let triggeredCount = 0
       for (const session of privateSessions.slice(0, 10)) {
@@ -499,21 +526,23 @@ class InsightService {
 
         // 检查是否有真正的新消息
         if (currentTimestamp <= lastSeen) {
-          continue // 没有新消息，跳过
+          continue
         }
 
         // 更新已见时间戳
         this.lastSeenTimestamp.set(sessionId, currentTimestamp)
 
-        // 检查冷却期
-        const lastAnalysis = this.lastActivityAnalysis.get(sessionId) ?? 0
-        const cooldownRemaining = ACTIVITY_COOLDOWN_MS - (now - lastAnalysis)
-        if (cooldownRemaining > 0) {
-          console.log(`[InsightService] ${sessionId} 冷却中，还需 ${Math.ceil(cooldownRemaining / 60000)} 分钟`)
-          continue
+        // 检查冷却期（0 分钟 = 无冷却，直接通过）
+        if (cooldownMs > 0) {
+          const lastAnalysis = this.lastActivityAnalysis.get(sessionId) ?? 0
+          const cooldownRemaining = cooldownMs - (now - lastAnalysis)
+          if (cooldownRemaining > 0) {
+            insightLog('INFO', `${session.displayName || sessionId} 冷却中，还需 ${Math.ceil(cooldownRemaining / 60000)} 分钟`)
+            continue
+          }
         }
 
-        console.log(`[InsightService] ${sessionId} 有新消息且冷却已过，准备生成见解...`)
+        insightLog('INFO', `${session.displayName || sessionId} 有新消息，准备生成见解...`)
         this.lastActivityAnalysis.set(sessionId, now)
 
         await this.generateInsightForSession({
@@ -523,15 +552,14 @@ class InsightService {
         })
         triggeredCount++
 
-        // 每次最多处理 1 个会话，避免单次防抖后批量调用
-        break
+        break // 每次最多处理 1 个会话
       }
 
       if (triggeredCount === 0) {
-        console.log('[InsightService] 活跃分析完成，无会话触发见解')
+        insightLog('INFO', '活跃分析完成，无会话触发见解')
       }
     } catch (e) {
-      console.warn('[InsightService] 活跃分析出错:', e)
+      insightLog('ERROR', `活跃分析出错: ${(e as Error).message}`)
     } finally {
       this.processing = false
     }
@@ -552,11 +580,12 @@ class InsightService {
     const apiKey = this.config.get('aiInsightApiKey') as string
     const model = (this.config.get('aiInsightApiModel') as string) || 'gpt-4o-mini'
     const allowContext = this.config.get('aiInsightAllowContext') as boolean
+    const contextCount = (this.config.get('aiInsightContextCount') as number) || 40
 
-    console.log(`[InsightService] generateInsightForSession: sessionId=${sessionId}, reason=${triggerReason}, apiBaseUrl=${apiBaseUrl ? '已配置' : '未配置'}, apiKey=${apiKey ? '已配置' : '未配置'}`)
+    insightLog('INFO', `generateInsightForSession: sessionId=${sessionId}, reason=${triggerReason}, contextCount=${contextCount}, api=${apiBaseUrl ? '已配置' : '未配置'}`)
 
     if (!apiBaseUrl || !apiKey) {
-      console.warn('[InsightService] API 地址或 Key 未配置，跳过见解生成')
+      insightLog('WARN', 'API 地址或 Key 未配置，跳过见解生成')
       return
     }
 
@@ -569,7 +598,7 @@ class InsightService {
     let contextSection = ''
     if (allowContext) {
       try {
-        const msgsResult = await chatService.getLatestMessages(sessionId, MAX_CONTEXT_MESSAGES)
+        const msgsResult = await chatService.getLatestMessages(sessionId, contextCount)
         if (msgsResult.success && msgsResult.messages && msgsResult.messages.length > 0) {
           const messages: Message[] = msgsResult.messages
           const msgLines = messages.map((m) => {
@@ -578,8 +607,13 @@ class InsightService {
             const time = new Date(Number(m.createTime) * 1000).toLocaleString('zh-CN')
             return `[${time}] ${sender}：${content}`
           })
-          contextSection = `\n\n��期对话记录（最近 ${msgLines.length} 条）：\n${msgLines.join('\n')}`
+          contextSection = `\n\n近期对话记录（最近 ${msgLines.length} 条）：\n${msgLines.join('\n')}`
+          insightLog('INFO', `已加载 ${msgLines.length} 条上下文消息`)
         }
+      } catch (e) {
+        insightLog('WARN', `拉取上下文失败: ${(e as Error).message}`)
+      }
+    }
       } catch (e) {
         console.warn('[InsightService] 拉取上下文失败:', e)
       }
@@ -609,7 +643,7 @@ class InsightService {
 请给出你的见解（≤80字）或回复 SKIP 跳过：`
 
     const endpoint = buildApiUrl(apiBaseUrl, '/chat/completions')
-    console.log(`[InsightService] 准备调用 API: ${endpoint}，模型: ${model}`)
+    insightLog('INFO', `准备调用 API: ${endpoint}，模型: ${model}`)
 
     try {
       const result = await callApi(
@@ -622,18 +656,17 @@ class InsightService {
         ]
       )
 
-      console.log(`[InsightService] API 返回原文: ${result.slice(0, 100)}`)
+      insightLog('INFO', `API 返回原文: ${result.slice(0, 150)}`)
 
       // 模型主动选择跳过
       if (result.trim().toUpperCase() === 'SKIP' || result.trim().startsWith('SKIP')) {
-        console.log(`[InsightService] 模型选择跳过 ${sessionId}`)
+        insightLog('INFO', `模型选择跳过 ${displayName}`)
         return
       }
 
-      const insight = result.slice(0, 120) // 防止超长截断
+      const insight = result.slice(0, 120)
 
-      // 通过现有 showNotification 推送弹窗
-      console.log(`[InsightService] 准备推送通知: ${insight}`)
+      insightLog('INFO', `推送通知 → ${displayName}: ${insight}`)
       await showNotification({
         sessionId,
         sourceName: `见解 · ${displayName}`,
@@ -641,9 +674,9 @@ class InsightService {
         isInsight: true
       })
 
-      console.log(`[InsightService] 已为 ${sessionId} 推送见解`)
+      insightLog('INFO', `已为 ${displayName} 推送见解`)
     } catch (e) {
-      console.warn(`[InsightService] API 调用失败 (${sessionId}):`, (e as Error).message)
+      insightLog('ERROR', `API 调用失败 (${displayName}): ${(e as Error).message}`)
     }
   }
 }

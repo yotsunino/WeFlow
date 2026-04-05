@@ -72,6 +72,12 @@ interface ConfigSchema {
   aiInsightAllowContext: boolean
   aiInsightWhitelistEnabled: boolean
   aiInsightWhitelist: string[]
+  /** 活跃分析冷却时间（分钟），0 表示无冷却 */
+  aiInsightCooldownMinutes: number
+  /** 沉默联系人扫描间隔（小时） */
+  aiInsightScanIntervalHours: number
+  /** 发送上下文时的最大消息条数 */
+  aiInsightContextCount: number
 }
 
 // 需要 safeStorage 加密的字段（普通模式）
@@ -153,7 +159,10 @@ export class ConfigService {
       aiInsightSilenceDays: 3,
       aiInsightAllowContext: false,
       aiInsightWhitelistEnabled: false,
-      aiInsightWhitelist: []
+      aiInsightWhitelist: [],
+      aiInsightCooldownMinutes: 120,
+      aiInsightScanIntervalHours: 4,
+      aiInsightContextCount: 40
     }
 
     const storeOptions: any = {

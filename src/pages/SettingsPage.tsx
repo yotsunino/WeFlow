@@ -230,6 +230,9 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
   const [aiInsightWhitelistEnabled, setAiInsightWhitelistEnabled] = useState(false)
   const [aiInsightWhitelist, setAiInsightWhitelist] = useState<Set<string>>(new Set())
   const [insightWhitelistSearch, setInsightWhitelistSearch] = useState('')
+  const [aiInsightCooldownMinutes, setAiInsightCooldownMinutes] = useState(120)
+  const [aiInsightScanIntervalHours, setAiInsightScanIntervalHours] = useState(4)
+  const [aiInsightContextCount, setAiInsightContextCount] = useState(40)
 
   const [isWayland, setIsWayland] = useState(false)
   useEffect(() => {
@@ -462,17 +465,23 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
       const savedAiInsightApiKey = await configService.getAiInsightApiKey()
       const savedAiInsightApiModel = await configService.getAiInsightApiModel()
       const savedAiInsightSilenceDays = await configService.getAiInsightSilenceDays()
-      const savedAiInsightAllowContext = await configService.getAiInsightAllowContext()
-      const savedAiInsightWhitelistEnabled = await configService.getAiInsightWhitelistEnabled()
-      const savedAiInsightWhitelist = await configService.getAiInsightWhitelist()
-      setAiInsightEnabled(savedAiInsightEnabled)
-      setAiInsightApiBaseUrl(savedAiInsightApiBaseUrl)
-      setAiInsightApiKey(savedAiInsightApiKey)
-      setAiInsightApiModel(savedAiInsightApiModel)
-      setAiInsightSilenceDays(savedAiInsightSilenceDays)
-      setAiInsightAllowContext(savedAiInsightAllowContext)
-      setAiInsightWhitelistEnabled(savedAiInsightWhitelistEnabled)
-      setAiInsightWhitelist(new Set(savedAiInsightWhitelist))
+  const savedAiInsightAllowContext = await configService.getAiInsightAllowContext()
+  const savedAiInsightWhitelistEnabled = await configService.getAiInsightWhitelistEnabled()
+  const savedAiInsightWhitelist = await configService.getAiInsightWhitelist()
+  const savedAiInsightCooldownMinutes = await configService.getAiInsightCooldownMinutes()
+  const savedAiInsightScanIntervalHours = await configService.getAiInsightScanIntervalHours()
+  const savedAiInsightContextCount = await configService.getAiInsightContextCount()
+  setAiInsightEnabled(savedAiInsightEnabled)
+  setAiInsightApiBaseUrl(savedAiInsightApiBaseUrl)
+  setAiInsightApiKey(savedAiInsightApiKey)
+  setAiInsightApiModel(savedAiInsightApiModel)
+  setAiInsightSilenceDays(savedAiInsightSilenceDays)
+  setAiInsightAllowContext(savedAiInsightAllowContext)
+  setAiInsightWhitelistEnabled(savedAiInsightWhitelistEnabled)
+  setAiInsightWhitelist(new Set(savedAiInsightWhitelist))
+  setAiInsightCooldownMinutes(savedAiInsightCooldownMinutes)
+  setAiInsightScanIntervalHours(savedAiInsightScanIntervalHours)
+  setAiInsightContextCount(savedAiInsightContextCount)
 
     } catch (e: any) {
       console.error('加载配置失败:', e)
@@ -2677,9 +2686,55 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
 
       {/* 行为配置 */}
       <div className="form-group">
+        <label>活跃触发冷却期（分钟）</label>
+        <span className="form-hint">
+          有新消息时触发活跃分析的冷却时间。设为 <strong>0</strong> 表示无冷却，每条新消息都可能触发见解（AI 言论自由模式）。建议按需调整，费用自理。
+        </span>
+        <input
+          type="number"
+          className="field-input"
+          value={aiInsightCooldownMinutes}
+          min={0}
+          max={10080}
+          onChange={(e) => {
+            const val = Math.max(0, parseInt(e.target.value, 10) || 0)
+            setAiInsightCooldownMinutes(val)
+            scheduleConfigSave('aiInsightCooldownMinutes', () => configService.setAiInsightCooldownMinutes(val))
+          }}
+          style={{ width: 120 }}
+        />
+        {aiInsightCooldownMinutes === 0 && (
+          <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--color-warning, #f59e0b)' }}>
+            无冷却 — 每次 DB 变更均可触发
+          </span>
+        )}
+      </div>
+
+      <div className="form-group">
+        <label>沉默联系人扫描间隔（小时）</label>
+        <span className="form-hint">
+          多久扫描一次沉默联系人。重启生效。最小 0.1 小时（6 分钟）。
+        </span>
+        <input
+          type="number"
+          className="field-input"
+          value={aiInsightScanIntervalHours}
+          min={0.1}
+          max={168}
+          step={0.5}
+          onChange={(e) => {
+            const val = Math.max(0.1, parseFloat(e.target.value) || 4)
+            setAiInsightScanIntervalHours(val)
+            scheduleConfigSave('aiInsightScanIntervalHours', () => configService.setAiInsightScanIntervalHours(val))
+          }}
+          style={{ width: 120 }}
+        />
+      </div>
+
+      <div className="form-group">
         <label>沉默联系人阈值（天）</label>
         <span className="form-hint">
-          当你与某个私聊联系人超过此天数没有发过消息时，AI 会主动扫描并尝试给出见解。每 4 小时扫描一次。
+          与某私聊联系人超过此天数没有消息往来时，触发沉默类见解。
         </span>
         <input
           type="number"
@@ -2699,11 +2754,11 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
       <div className="form-group">
         <label>允许发送近期对话内容用于分析</label>
         <span className="form-hint">
-          开启后，AI 见解触发时会将该联系人最近 40 条真实聊天记录一并发送给 AI，使其能够基于真实内容给出有意义的分析，而非泛泛而谈。
+          开启后，触发见解时会将该联系人最近 N 条聊天记录发送给 AI，分析质量显著提升。
           <br />
-          <strong>关闭时</strong>：AI 仅知道"与某人沉默了 N 天"等统计摘要，输出质量会显著降低。
+          <strong>关闭时</strong>：AI 仅知道统计摘要（沉默天数等），输出质量较低。
           <br />
-          <strong>开启时</strong>：聊天文本内容（不含图片、语音）会通过你配置的 API 发送给你选择的模型提供商。请确认你信任该服务商。
+          <strong>开启时</strong>：聊天文本内容（不含图片、语音）会通过你配置的 API 发送给模型提供商。请确认你信任该服务商。
         </span>
         <div className="log-toggle-line">
           <span className="log-status">{aiInsightAllowContext ? '已授权' : '未授权'}</span>
@@ -2721,6 +2776,28 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
           </label>
         </div>
       </div>
+
+      {aiInsightAllowContext && (
+        <div className="form-group">
+          <label>发送近期对话条数</label>
+          <span className="form-hint">
+            发送给 AI 的聊天记录最大条数。条数越多分析越准确，token 消耗也越多。
+          </span>
+          <input
+            type="number"
+            className="field-input"
+            value={aiInsightContextCount}
+            min={1}
+            max={200}
+            onChange={(e) => {
+              const val = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 40))
+              setAiInsightContextCount(val)
+              scheduleConfigSave('aiInsightContextCount', () => configService.setAiInsightContextCount(val))
+            }}
+            style={{ width: 100 }}
+          />
+        </div>
+      )}
 
       <div className="divider" />
 

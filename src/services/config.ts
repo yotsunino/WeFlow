@@ -89,7 +89,10 @@ export const CONFIG_KEYS = {
   AI_INSIGHT_SILENCE_DAYS: 'aiInsightSilenceDays',
   AI_INSIGHT_ALLOW_CONTEXT: 'aiInsightAllowContext',
   AI_INSIGHT_WHITELIST_ENABLED: 'aiInsightWhitelistEnabled',
-  AI_INSIGHT_WHITELIST: 'aiInsightWhitelist'
+  AI_INSIGHT_WHITELIST: 'aiInsightWhitelist',
+  AI_INSIGHT_COOLDOWN_MINUTES: 'aiInsightCooldownMinutes',
+  AI_INSIGHT_SCAN_INTERVAL_HOURS: 'aiInsightScanIntervalHours',
+  AI_INSIGHT_CONTEXT_COUNT: 'aiInsightContextCount'
 } as const
 
 export interface WxidConfig {
@@ -1634,4 +1637,31 @@ export async function getAiInsightWhitelist(): Promise<string[]> {
 
 export async function setAiInsightWhitelist(list: string[]): Promise<void> {
   await config.set(CONFIG_KEYS.AI_INSIGHT_WHITELIST, list)
+}
+
+export async function getAiInsightCooldownMinutes(): Promise<number> {
+  const value = await config.get(CONFIG_KEYS.AI_INSIGHT_COOLDOWN_MINUTES)
+  return typeof value === 'number' && value >= 0 ? value : 120
+}
+
+export async function setAiInsightCooldownMinutes(minutes: number): Promise<void> {
+  await config.set(CONFIG_KEYS.AI_INSIGHT_COOLDOWN_MINUTES, minutes)
+}
+
+export async function getAiInsightScanIntervalHours(): Promise<number> {
+  const value = await config.get(CONFIG_KEYS.AI_INSIGHT_SCAN_INTERVAL_HOURS)
+  return typeof value === 'number' && value > 0 ? value : 4
+}
+
+export async function setAiInsightScanIntervalHours(hours: number): Promise<void> {
+  await config.set(CONFIG_KEYS.AI_INSIGHT_SCAN_INTERVAL_HOURS, hours)
+}
+
+export async function getAiInsightContextCount(): Promise<number> {
+  const value = await config.get(CONFIG_KEYS.AI_INSIGHT_CONTEXT_COUNT)
+  return typeof value === 'number' && value > 0 ? value : 40
+}
+
+export async function setAiInsightContextCount(count: number): Promise<void> {
+  await config.set(CONFIG_KEYS.AI_INSIGHT_CONTEXT_COUNT, count)
 }
