@@ -84,7 +84,7 @@
         {
           "name": "@electron-forge/maker-dmg",
           "config": {
-            "format": "ULFO"
+            "format": "UDZO"
           }
         },
         {
@@ -106,26 +106,12 @@
           "config": {
             "build": [
               {
-                "entry": "src/main/index.ts",
-                "config": "vite.main.config.ts"
-              }
-            ],
-            "renderer": [
-              {
-                "name": "main_window",
-                "config": "vite.renderer.config.ts"
+                "entry": "src/main/index.ts"
               }
             ]
           }
         }
       ]
     }
-  },
-  "prettier": {
-    "semi": true,
-    "singleQuote": true,
-    "tabWidth": 2,
-    "trailingComma": "es5",
-    "printWidth": 100
   }
 }
