@@ -33,8 +33,7 @@ function createWindow(): void {
   // Show window once ready to avoid visual flash
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show();
-    // Start maximized — I find it more comfortable for day-to-day use
-    mainWindow?.maximize();
+    // Removed auto-maximize — I prefer to control window size manually
   });
 
   // Open external links in the default browser instead of Electron
@@ -104,6 +103,4 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
       await shell.openExternal(url);
       return { success: true };
     }
-    return { success: false, error: 'Disallowed protocol' };
-  } catch {
-    return { success: false, err
+    re
