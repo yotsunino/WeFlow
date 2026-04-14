@@ -33,6 +33,8 @@ function createWindow(): void {
   // Show window once ready to avoid visual flash
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show();
+    // Start maximized — I find it more comfortable for day-to-day use
+    mainWindow?.maximize();
   });
 
   // Open external links in the default browser instead of Electron
@@ -104,6 +106,4 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
     }
     return { success: false, error: 'Disallowed protocol' };
   } catch {
-    return { success: false, error: 'Invalid URL' };
-  }
-});
+    return { success: false, err
