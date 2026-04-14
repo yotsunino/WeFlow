@@ -69,7 +69,8 @@
       "packagerConfig": {
         "asar": true,
         "icon": "./assets/icons/icon",
-        "appCopyright": "MIT License"
+        "appCopyright": "MIT License",
+        "appBundleId": "com.personal.weflow"
       },
       "rebuildConfig": {},
       "makers": [
@@ -113,12 +114,5 @@
         }
       ]
     }
-  },
-  "prettier": {
-    "semi": true,
-    "singleQuote": true,
-    "tabWidth": 2,
-    "trailingComma": "es5",
-    "printWidth": 100
   }
 }
