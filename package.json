@@ -70,7 +70,8 @@
         "asar": true,
         "icon": "./assets/icons/icon",
         "appCopyright": "MIT License",
-        "appBundleId": "com.personal.weflow"
+        "appBundleId": "com.personal.weflow",
+        "appVersion": "1.0.0"
       },
       "rebuildConfig": {},
       "makers": [
@@ -85,7 +86,7 @@
         {
           "name": "@electron-forge/maker-dmg",
           "config": {
-            "format": "UDZO"
+            "format": "ULFO"
           }
         },
         {
@@ -107,12 +108,4 @@
           "config": {
             "build": [
               {
-                "entry": "src/main/index.ts"
-              }
-            ]
-          }
-        }
-      ]
-    }
-  }
-}
+                "ent
